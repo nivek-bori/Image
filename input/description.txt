@@ -1,0 +1,5 @@
+video_1: intersection video 1
+	video_1A: ~12 frame cut
+	video_1B: longer cut. traffic light lost-recover cycle
+
+video_2: intersection video 2

@@ -1,0 +1,62 @@
+import cv2
+
+# curr_det: [cx, cy, w, h]
+def annotate_detections(annotated_frame, curr_det, color=(255, 255, 255)):
+	for xywh, conf in list(zip(curr_det.xywh, curr_det.conf)):
+        # detection pos
+		x1 = int(xywh[0] - xywh[2] / 2)
+		x2 = int(xywh[0] + xywh[2] / 2)
+		y1 = int(xywh[1] - xywh[3] / 2)
+		y2 = int(xywh[1] + xywh[3] / 2)
+        
+		# detection bounding box
+		cv2.circle(annotated_frame, (int(xywh[0]), int(xywh[1])), 6, color, 2) # raw xy
+		cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+        
+		# detection text
+		text = f'conf: {conf}'
+		cv2.putText(annotated_frame, text, (int(x1), int(y2 + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+	
+	return annotated_frame
+
+
+def annotate_tracklets(annotated_frame, tracks, color=(0, 255, 0)):
+	for id, track in tracks.items():
+		bbox = track.k_filter.x[:, 0] # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
+        
+        # tracking pos
+		w, h = bbox[2] * bbox[3], bbox[3]
+		x1 = int(bbox[0] - w/2)
+		y1 = int(bbox[1] - h/2)
+		x2 = int(bbox[0] + w/2)
+		y2 = int(bbox[1] + h/2)
+        
+        # tracking bounding box
+		cv2.circle(annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, 2) # raw cxy
+		cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+        
+		# tracking text
+		text = f'id: {id}'
+		cv2.putText(annotated_frame, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+	
+	return annotated_frame
+        
+
+def annotate_predictions(annotated_frame, tracks, color=(255, 0, 0)):
+	for _id, track in tracks.items():
+		bbox = track.k_filter.x[:, 0] # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
+
+		# prediction pos
+		pred_w, pred_h = (bbox[3] + bbox[6]) * bbox[2], bbox[3] + bbox[6]
+		pred_x1 = int( (bbox[0] + bbox[4]) - pred_w/2 )
+		pred_y1 = int( (bbox[1] + bbox[5]) - pred_h/2 )
+		pred_x2 = int( (bbox[0] + bbox[4]) + pred_w/2 )
+		pred_y2 = int( (bbox[1] + bbox[5]) + pred_h/2 )
+        
+        # prediction bounding box
+		cv2.circle(annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, 2) # raw cxy
+		cv2.rectangle(annotated_frame, (pred_x1, pred_y1), (pred_x2, pred_y2), color, 2)
+        
+        # print(bbox, x1, y1, x2, y2, int(w), int(h), ' - ', pred_x1, pred_y1, pred_x2, pred_y2, int(pred_w), int(pred_h)) # DEBUGGING
+	
+	return annotated_frame
