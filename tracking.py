@@ -5,7 +5,7 @@ from ultralytics import YOLO
 from util.video import video_to_frames
 from util.kalman_filter import KalmanFilter
 from util.matching import greedy_match
-from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions
+from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions, annotate_n_predictions
 
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
 auto_play = True
@@ -149,10 +149,13 @@ for i, frame in enumerate(frames):
 	# annotate frame
     annotated_frame = frame.copy()
     
-    annotated_frame = annotate_detections(annotated_frame, curr_det, (255, 0, 0))
+	# detection - white, tracklets - green, lost tracklets - red, predictions - blue
+    annotated_frame = annotate_detections(annotated_frame, curr_det, (255, 255, 255))
     annotated_frame = annotate_tracklets(annotated_frame, tracks, (0, 255, 0))
-    # annotated_frame = annotate_predictions(annotated_frame, tracks, (255, 255, 255))
-    annotated_frame = annotate_predictions(annotated_frame, lost_tracks, (0, 0, 255))
+    # annotated_frame = annotate_predictions(annotated_frame, tracks, (255, 0, 0))
+    annotated_frame = annotate_n_predictions(annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in tracks.values()], (255, 0, 0))
+    # annotated_frame = annotate_predictions(annotated_frame, lost_tracks, (0, 0, 255))
+    # annotated_frame = annotate_n_predictions(annotated_frame, [track.k_filter.predict_n_steps(5, 5) for track in lost_tracks.values()], (255, 0, 0))
 
 	# rendering
     # print(f'Frame: {i}, high matches: {len(high_matches)}, high unmatched det: {len(high_unmatched_dets)}, unmatched tracks: {len(unmatched_tracks)}')
