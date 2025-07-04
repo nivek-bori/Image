@@ -2,15 +2,12 @@ import numpy as np
 
 class KalmanFilter:
     def __init__(self, bbox):
-        # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
-        
-        # calculating to center coords and aspect ratio
-        cx = bbox[0]
-        cy = bbox[1]
-        w, h = bbox[2], bbox[3]
+        cx, cy, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
         aspect_ratio = w / h if h != 0 else 1.0
         
-        self.x = np.array([[cx], [cy], [aspect_ratio], [h], [0], [0], [0]], dtype=np.float32) # velocity is initally zero
+        # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
+        # velocity is initally zero
+        self.x = np.array([[cx], [cy], [aspect_ratio], [h], [0], [0], [0]], dtype=np.float32)
         
         # State transition matrix (constant velocity model)
         dt = 1  # Time step (1 frame)
@@ -53,17 +50,28 @@ class KalmanFilter:
         self.P[4:, 4:] *= 1000.0   # Very uncertain about initial velocities
         
     def predict(self):
-        """Predict next state using motion model"""
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
         return self.get_bbox()
     
+    def predict_n_steps(self, steps, stride=1):
+        pred_x = self.x.copy()
+        pred_P = self.P.copy()
+        
+        predicted_states = [pred_x.copy()]
+        
+        for step in range(steps):
+			# step by stride num
+            for _i in range(stride):
+                pred_x = self.F @ pred_x
+                prex_P = self.F @ pred_P @ self.F.T + self.Q
+            
+            predicted_states.append(pred_x.copy())
+        
+        return predicted_states
+    
     def update(self, bbox):
-        """Update with new detection in [cx, cy, w, h] format"""
-        # bbox is already in center format [cx, cy, w, h]
-        cx = bbox[0]  # Already center x
-        cy = bbox[1]  # Already center y
-        w, h = bbox[2], bbox[3]
+        cx, cy, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
         aspect_ratio = w / h if h != 0 else 1.0
         
         z = np.array([[cx], [cy], [aspect_ratio], [h]], dtype=np.float32)
@@ -81,10 +89,5 @@ class KalmanFilter:
         return self.get_bbox()
     
     def get_bbox(self):
-        """Return state back to bbox format [cx, cy, w, h]"""
         cx, cy, aspect_ratio, h = self.x[:4, 0]
-        
-        # Convert back to width
-        w = aspect_ratio * h
-        
-        return np.array([cx, cy, w, h])
+        return np.array([cx, cy, aspect_ratio * h, h]) # [cx, cy, w, h]

@@ -1,7 +1,7 @@
 import cv2
 
 # curr_det: [cx, cy, w, h]
-def annotate_detections(annotated_frame, curr_det, color=(255, 255, 255)):
+def annotate_detections(annotated_frame, curr_det, color):
 	for xywh, conf in list(zip(curr_det.xywh, curr_det.conf)):
         # detection pos
 		x1 = int(xywh[0] - xywh[2] / 2)
@@ -20,7 +20,7 @@ def annotate_detections(annotated_frame, curr_det, color=(255, 255, 255)):
 	return annotated_frame
 
 
-def annotate_tracklets(annotated_frame, tracks, color=(0, 255, 0)):
+def annotate_tracklets(annotated_frame, tracks, color):
 	for id, track in tracks.items():
 		bbox = track.k_filter.x[:, 0] # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
         
@@ -42,8 +42,8 @@ def annotate_tracklets(annotated_frame, tracks, color=(0, 255, 0)):
 	return annotated_frame
         
 
-def annotate_predictions(annotated_frame, tracks, color=(255, 0, 0)):
-	for _id, track in tracks.items():
+def annotate_predictions(annotated_frame, tracks, color):
+	for track in tracks.values():
 		bbox = track.k_filter.x[:, 0] # x: [cx, cy, aspect_ratio, height, vx, vy, vh]
 
 		# prediction pos
@@ -60,3 +60,21 @@ def annotate_predictions(annotated_frame, tracks, color=(255, 0, 0)):
         # print(bbox, x1, y1, x2, y2, int(w), int(h), ' - ', pred_x1, pred_y1, pred_x2, pred_y2, int(pred_w), int(pred_h)) # DEBUGGING
 	
 	return annotated_frame
+
+def annotate_n_predictions(annotated_frame, pred_tracks, color):
+	for track in pred_tracks:
+		for i, bbox in enumerate(track[1:]): # do not include first bbox (non-prediction bbox)
+			# prediction pos
+			w, h = bbox[2] * bbox[3], bbox[3]
+			x1 = int(bbox[0] - w/2)
+			y1 = int(bbox[1] - h/2)
+			x2 = int(bbox[0] + w/2)
+			y2 = int(bbox[1] + h/2)
+			
+			# prediction bounding box
+			weight = 1 - 0.8 * (i / len(track))
+			weighted_color = [weight * c for c in color]
+			cv2.circle(annotated_frame, (int(bbox[0]), int(bbox[1])), int(weight * 6), weighted_color, 2) # raw cxy
+			cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), weighted_color, 2)
+	
+	return annotated_frame	
