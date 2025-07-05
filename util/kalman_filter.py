@@ -29,25 +29,31 @@ class KalmanFilter:
             [0, 0, 0, 1, 0, 0, 0, 0]   # measure height
         ], dtype=np.float32)
         
+		###
+		# Q: how unpredictable a value is. In practice, how much can the value change
+		# R: how much to trust detection measurements. In practice, how much detection measurements can affect predictions.
+		# P: how uncertain new tracking is. In practice, how volitile inital updates can be
+        ###
+        
         # Process noise covariance - Standard ByteTrack parameters
         self.Q = np.eye(8, dtype=np.float32)
         self.Q[:2, :2] *= 1.0      # Position noise
         self.Q[2, 2] *= 1.0        # Width noise
         self.Q[3, 3] *= 1.0        # Height noise
-        self.Q[4:, 4:] *= 1e-1     # Velocity noise
+        self.Q[4:, 4:] *= 0.1     # Velocity noise
         
         # Measurement noise covariance - Detection uncertainty
         self.R = np.eye(4, dtype=np.float32)
-        self.R[:2, :2] *= 1.0      # Position measurement noise
-        self.R[2, 2] *= 1.0        # Width measurement noise
-        self.R[3, 3] *= 1.0        # Height measurement noise
+        self.R[:2, :2] *= 1000.0      # Position measurement noise
+        self.R[2, 2] *= 1000.0        # Width measurement noise
+        self.R[3, 3] *= 1000.0        # Height measurement noise
         
         # Initial state covariance
         self.P = np.eye(8, dtype=np.float32)
-        self.P[:2, :2] *= 10.0     # Initial position uncertainty
-        self.P[2, 2] *= 10.0       # Initial width uncertainty
-        self.P[3, 3] *= 10.0       # Initial height uncertainty
-        self.P[4:, 4:] *= 1000.0   # Very uncertain about initial velocities
+        self.P[:2, :2] *= 0.0     # Initial position uncertainty
+        self.P[2, 2] *= 30.0       # Initial width uncertainty
+        self.P[3, 3] *= 30.0       # Initial height uncertainty
+        self.P[4:, 4:] *= 100 * 1000.0   # Very uncertain about initial velocities
         
     def predict(self):
         self.x = self.F @ self.x

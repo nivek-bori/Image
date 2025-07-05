@@ -2,7 +2,6 @@
 import numpy as np
 
 def calculate_iou(bbox1, bbox2):
-    print(bbox1, bbox2)
     cx1, cy1, w1, h1 = bbox1
     cx2, cy2, w2, h2 = bbox2
     
@@ -37,7 +36,7 @@ def greedy_match(detections, boxes, iou_threshold=0.0):
     iou = np.zeros((len(detections), len(boxes)))
     for i, det in enumerate(detections):
         for j, box in enumerate(boxes):
-            iou[i, j] = calculate_iou(det, box[1])
+            iou[i, j] = calculate_iou(det, box[0])
     
     cost = 1.0 - iou
     
