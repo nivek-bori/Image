@@ -2,6 +2,7 @@
 import numpy as np
 
 def calculate_iou(bbox1, bbox2):
+    print(bbox1, bbox2)
     cx1, cy1, w1, h1 = bbox1
     cx2, cy2, w2, h2 = bbox2
     
