@@ -27,18 +27,21 @@ def calculate_iou(bbox1, bbox2):
     return intersection / union
 
 
-def greedy_match(detections, boxes, iou_threshold=0.0):
+def greedy_match(detections, boxes, iou_threshold=0.1, age_max_weight=0.15):
     if len(detections) == 0:
         return [], [], boxes
     if len(boxes) == 0:
         return [], detections, []
     
     iou = np.zeros((len(detections), len(boxes)))
+    cost = np.zeros((len(detections), len(boxes)))
     for i, det in enumerate(detections):
         for j, box in enumerate(boxes):
             iou[i, j] = calculate_iou(det, box[0])
-    
-    cost = 1.0 - iou
+
+            cost[i, j] = 1.0 + age_max_weight # iou max + age max
+            cost[i, j] -= iou[i, j] # iou
+            cost[i, j] -= age_max_weight * (1 - 1 / (box[1].end - box[1].start + 1)) # age
     
     matches = []
     unmatched_det_idx = set(range(len(detections)))

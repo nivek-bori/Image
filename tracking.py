@@ -9,8 +9,8 @@ from util.rendering import annotate_detections, annotate_tracklets, annotate_pre
 
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
 auto_play = True
-filter_track_time = 2
-skip_n_frames = 0
+skip_n_frames = 30
+filter_track_time = 0
 
 # Initalize
 input_file = 'input/video_1.mp4'
@@ -166,10 +166,10 @@ def self_byte_track():
 			
 		
 		# detection - white, tracklets - green, lost tracklets - red, predictions - blue
-		# annotated_frame = annotate_detections(annotated_frame, curr_det, (255, 255, 255))
+		annotated_frame = annotate_detections(annotated_frame, curr_det, (255, 255, 255))
 		annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
 		# annotated_frame = annotate_predictions(annotated_frame, filtered_tracks, (255, 0, 0))
-		annotated_frame = annotate_n_predictions(annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0))
+		# annotated_frame = annotate_n_predictions(annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0))
 		annotated_frame = annotate_predictions(annotated_frame, filtered_lost_tracks, (0, 0, 255))
 		# annotated_frame = annotate_n_predictions(annotated_frame, [filtered_lost_tracks.k_filter.predict_n_steps(5, 5) for track in filtered_lost_tracks.values()], (255, 0, 0))
 
