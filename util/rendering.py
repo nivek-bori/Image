@@ -1,21 +1,24 @@
 import cv2
 
 # curr_det: [cx, cy, w, h]
-def annotate_detections(annotated_frame, curr_det, color):
-	for xywh, conf in list(zip(curr_det.xywh, curr_det.conf)):
-        # detection pos
-		x1 = int(xywh[0] - xywh[2] / 2)
-		x2 = int(xywh[0] + xywh[2] / 2)
-		y1 = int(xywh[1] - xywh[3] / 2)
-		y2 = int(xywh[1] + xywh[3] / 2)
-        
-		# detection bounding box
-		cv2.circle(annotated_frame, (int(xywh[0]), int(xywh[1])), 6, color, 2) # raw xy
-		cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-        
-		# detection text
-		text = f'conf: {conf}'
-		cv2.putText(annotated_frame, text, (int(x1), int(y2 + 5)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+def annotate_detections(annotated_frame, *boxes):
+	for detections, color in boxes:
+		for det in detections:
+			xywh = det.xywh[0]
+			
+			# detection pos
+			x1 = int(xywh[0] - xywh[2] / 2)
+			x2 = int(xywh[0] + xywh[2] / 2)
+			y1 = int(xywh[1] - xywh[3] / 2)
+			y2 = int(xywh[1] + xywh[3] / 2)
+			
+			# detection bounding box
+			cv2.circle(annotated_frame, (int(xywh[0]), int(xywh[1])), 6, color, 2) # raw xy
+			cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+			
+			# detection text
+			text = f'conf: {det.conf[0]}'
+			cv2.putText(annotated_frame, text, (int(x1), int(y2 + 15)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
 	
 	return annotated_frame
 

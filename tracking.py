@@ -2,14 +2,16 @@ import cv2
 import logging
 import numpy as np
 from ultralytics import YOLO
-from util.video import video_to_frames
 from util.kalman_filter import KalmanFilter
 from util.matching import greedy_match
+from util.video import video_to_frames, get_video_frame_count
 from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions, annotate_n_predictions
-
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
+
 auto_play = True
-skip_n_frames = 30
+log_flag = False
+
+skip_n_frames = 0
 filter_track_time = 0
 
 # Initalize
@@ -18,7 +20,7 @@ model = YOLO('models/yolo11n.pt')
 
 high_conf_thres = 0.5
 low_conf_thres = 0.25
-max_lost_time = 60
+max_lost_time = 200
 
 # self byte track
 id_counter = 0
@@ -28,24 +30,20 @@ lost_tracks = {}
 removed_tracks = []
 
 frames = video_to_frames(input_file)
+frames_len = get_video_frame_count(input_file)
 
 # Functions/Classes
-def filter_bboxes(detections, confidences):
-	pairs = list(zip(detections, confidences))
-	
-	high_det = list(filter(lambda x: x[1] >= high_conf_thres, pairs))
-	low_det = list(filter(lambda x: low_conf_thres <= x[1] < high_conf_thres, pairs))
-    
-	high_det = [det[0] for det in high_det]
-	low_det = [det[0] for det in low_det]
+def filter_bboxes(detections):
+	high_det = list(filter(lambda x: x.conf >= high_conf_thres, detections))
+	low_det = list(filter(lambda x: low_conf_thres <= x.conf < high_conf_thres, detections))
 
 	return high_det, low_det
 
 def convert_bbox(detection):
-    if hasattr(detection, 'bbox'):
-        return detection.bbox
-    else:
-        return detection  # Already in [x, y, w, h] format
+    if hasattr(detection, 'xywh'):
+        return detection.xywh[0].cpu().numpy()
+    
+    raise Exception('xywh does not exist')
 
 def generate_id():
     global id_counter
@@ -73,23 +71,23 @@ def self_byte_track():
 		if i < skip_n_frames:
 			continue
 
-		curr_det = model(frame)[0].boxes # RCW RGB format
+		curr_det = model(frame)[0].boxes # RCW RGB format 
 		
 		# filter detections based on confidence - numpy
-		high_det, low_det = filter_bboxes(curr_det.xywh, curr_det.conf)
+		high_det, low_det = filter_bboxes(curr_det)
 
 		# get kalman predictions of prev tracks & match high conf det to preds
-		prev_bboxes = [(track.k_filter.predict(), track) for track in tracks.values()]
-		high_matches, high_unmatched_dets, unmatched_tracks = greedy_match(high_det, prev_bboxes)
+		tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
+		high_matches, high_unmatched_dets, unmatched_tracks = greedy_match(high_det, tracklets)
 		
 		# get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
-		prev_lost_bboxes = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
-		low_matches, _low_unmatched_dets, low_unmatched_tracks = greedy_match(low_det, prev_lost_bboxes)
+		lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
+		low_matches, _low_unmatched_dets, low_unmatched_tracks = greedy_match(low_det, lost_tracklets)
 		
 		# updating states
 		# high conf tracking continues
-		for det, box in high_matches:
-			track = box[1]
+		for det, tracklet in high_matches:
+			track = tracklet[1]
 
 			track.end = i
 			track.track_time += 1
@@ -107,8 +105,8 @@ def self_byte_track():
 			tracks[id] = track
 		
 		# lost tracker or unmatched high tracker recovered -> move to tracks
-		for det, box in low_matches:
-			id, track = box[1].id, box[1]
+		for det, tracklet in low_matches:
+			id, track = tracklet[1].id, tracklet[1]
 
 			# tracking continues
 			if track.track_time >= 0:
@@ -128,8 +126,8 @@ def self_byte_track():
 				tracks[id] = track
 
 		# lost dets not recovered
-		for box in low_unmatched_tracks:
-			id, track = box[1].id, box[1]
+		for tracklet in low_unmatched_tracks:
+			id, track = tracklet[1].id, tracklet[1]
 
 			# track just lost
 			if track.track_time >= 0:
@@ -163,18 +161,20 @@ def self_byte_track():
 		if filter_track_time > 0:
 			filtered_tracks = {id: track for id, track in tracks.items() if track.track_time >= filter_track_time}
 			filtered_lost_tracks = {id: track for id, track in lost_tracks.items() if abs(track.track_time) >= filter_track_time}
-			
-		
-		# detection - white, tracklets - green, lost tracklets - red, predictions - blue
-		annotated_frame = annotate_detections(annotated_frame, curr_det, (255, 255, 255))
-		annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
-		# annotated_frame = annotate_predictions(annotated_frame, filtered_tracks, (255, 0, 0))
-		# annotated_frame = annotate_n_predictions(annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0))
-		annotated_frame = annotate_predictions(annotated_frame, filtered_lost_tracks, (0, 0, 255))
-		# annotated_frame = annotate_n_predictions(annotated_frame, [filtered_lost_tracks.k_filter.predict_n_steps(5, 5) for track in filtered_lost_tracks.values()], (255, 0, 0))
+
+		# detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
+		# annotated_frame = annotate_detections( annotated_frame, (curr_det, (255, 255, 255)) ) # all detections
+		annotated_frame = annotate_detections( annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+		annotated_frame = annotate_tracklets( annotated_frame, filtered_tracks, (0, 255, 0) )
+		# annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
+		# annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
+		# annotated_frame = annotate_predictions( annotated_frame, filtered_lost_tracks, (0, 0, 255) )
+		# annotated_frame = annotate_n_predictions( annotated_frame, [filtered_lost_tracks.k_filter.predict_n_steps(5, 5) for track in filtered_lost_tracks.values()], (255, 0, 0) )
 
 		# rendering
 		cv2.imshow('Object Tracking', annotated_frame)
+		if log_flag:
+			(f'{i}/{frames_len} -  dets: {len(curr_det)}, f_tracks: {len(filtered_tracks)}, f_lost_tracks: {len(filtered_lost_tracks)}')
 		
 		if auto_play:
 			if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -188,8 +188,4 @@ def self_byte_track():
 	cv2.destroyAllWindows()
 
 def ultra_byte_track():
-	model.track(input_file, show=True, save=False, tracker='models/bytetracker.yaml')
-
-# Main
-self_byte_track()
-# ultra_byte_track()
+	model.track(input_file, show=True, save=False, tracker='models/bytetracker.yaml', show_boxes=True, show_labels=False, line_width=2)

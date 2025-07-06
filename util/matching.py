@@ -26,26 +26,26 @@ def calculate_iou(bbox1, bbox2):
     
     return intersection / union
 
-
-def greedy_match(detections, boxes, iou_threshold=0.1, age_max_weight=0.15):
+# detections and tracks are just sorted and are returned as is
+def greedy_match(detections, tracks, iou_threshold=0.1, age_max_weight=0.2):
     if len(detections) == 0:
-        return [], [], boxes
-    if len(boxes) == 0:
+        return [], [], tracks
+    if len(tracks) == 0:
         return [], detections, []
     
-    iou = np.zeros((len(detections), len(boxes)))
-    cost = np.zeros((len(detections), len(boxes)))
+    iou = np.zeros((len(detections), len(tracks)))
+    cost = np.zeros((len(detections), len(tracks)))
     for i, det in enumerate(detections):
-        for j, box in enumerate(boxes):
-            iou[i, j] = calculate_iou(det, box[0])
+        for j, track in enumerate(tracks):
+            iou[i, j] = calculate_iou(det.xywh[0], track[0])
 
             cost[i, j] = 1.0 + age_max_weight # iou max + age max
             cost[i, j] -= iou[i, j] # iou
-            cost[i, j] -= age_max_weight * (1 - 1 / (box[1].end - box[1].start + 1)) # age
+            cost[i, j] -= age_max_weight * (1 - 1 / (0.1 * (track[1].end - track[1].start) + 1)) # age
     
     matches = []
     unmatched_det_idx = set(range(len(detections)))
-    unmatched_box_idx = set(range(len(boxes)))
+    unmatched_box_idx = set(range(len(tracks)))
     
     while unmatched_det_idx and unmatched_box_idx:
         lowest_cost = 1.0
@@ -62,11 +62,11 @@ def greedy_match(detections, boxes, iou_threshold=0.1, age_max_weight=0.15):
         if best_det_idx == -1 or best_box_idx == -1:
             break # no more matches
         else:
-            matches.append((detections[best_det_idx], boxes[best_box_idx]))
+            matches.append((detections[best_det_idx], tracks[best_box_idx]))
             unmatched_det_idx.remove(best_det_idx)
             unmatched_box_idx.remove(best_box_idx)
     
     unmatched_dets = [detections[i] for i in unmatched_det_idx]
-    unmatched_boxes = [boxes[i] for i in unmatched_box_idx]
+    unmatched_boxes = [tracks[i] for i in unmatched_box_idx]
     
     return matches, unmatched_dets, unmatched_boxes
