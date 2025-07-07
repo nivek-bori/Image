@@ -2,7 +2,7 @@ import numpy as np
 
 class KalmanFilter:
     def __init__(self, bbox):
-        cx, cy, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+        cx, cy, w, h = bbox
         
         # x: [cx, cy, width, height, vx, vy, vw, vh]
         # velocity is initally zero

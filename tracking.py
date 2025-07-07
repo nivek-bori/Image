@@ -1,22 +1,28 @@
 import cv2
+import random
 import logging
 import numpy as np
-from ultralytics import YOLO
-from util.kalman_filter import KalmanFilter
+import torchvision.transforms as transforms
 from util.matching import greedy_match
+from util.kalman_filter import KalmanFilter
+from util.load_model import load_yolo_model, load_reid_model, get_reid_model_input_layer
 from util.video import video_to_frames, get_video_frame_count
 from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions, annotate_n_predictions
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
+logging.getLogger('torchreid').setLevel(logging.ERROR)
 
 auto_play = True
-log_flag = False
+show_bool = True
+log_bool = False
 
-skip_n_frames = 0
 filter_track_time = 0
+skip_n_frames = 0
+max_frames = 100 # -1 for no max
 
 # Initalize
-input_file = 'input/video_1.mp4'
-model = YOLO('models/yolo11n.pt')
+input_file = 'input/video_1B.mp4'
+model = load_yolo_model('models/yolo11n.pt')
+reid_model = load_reid_model('osnet_x0_25')
 
 high_conf_thres = 0.5
 low_conf_thres = 0.25
@@ -33,9 +39,14 @@ frames = video_to_frames(input_file)
 frames_len = get_video_frame_count(input_file)
 
 # Functions/Classes
-def filter_bboxes(detections):
+def process_bboxes(detections, frame):
 	high_det = list(filter(lambda x: x.conf >= high_conf_thres, detections))
 	low_det = list(filter(lambda x: low_conf_thres <= x.conf < high_conf_thres, detections))
+
+	for det in high_det:
+		det.reid = reid_model(get_bbox_image(frame, det))
+	for det in low_det:
+		det.reid = reid_model(get_bbox_image(frame, det))
 
 	return high_det, low_det
 
@@ -44,6 +55,26 @@ def convert_bbox(detection):
         return detection.xywh[0].cpu().numpy()
     
     raise Exception('xywh does not exist')
+
+def get_bbox_image(frame, detection):
+	# get bbox image
+    cx, cy, w, h = convert_bbox(detection)
+    x1, y1, x2, y2 = int(cx - w/2), int(cy - h/2), int(cx + w/2), int(cy + h/2) # bbox coords
+    x1, y1, x2, y2 = max(0, x1), max(0, y1), min(frame.shape[1], x2), min(frame.shape[0], y2) # bound coords
+    
+    image = frame[y1:y2, x1:x2]
+
+	# convert to format that reid model can take
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    transform = transforms.Compose([ # convert to tensor and normalize
+        transforms.ToPILImage(),
+        transforms.Resize((256, 128)),  # input size
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    
+    tensor = transform(image).unsqueeze(0) # add single batch dim
+    return tensor
 
 def generate_id():
     global id_counter
@@ -57,24 +88,26 @@ class Track:
         self.end = 0
         self.track_time = 0
         self.k_filter = KalmanFilter(bbox)
+        self.reid = None
         
-    def __str__(self):
-        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_bbox()})"
+    def __str__(self):        
+        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_bbox()}), ReID: {self.reid}"
 
     def __repr__(self):
         return self.__str__()
 
-
 # Tracking
 def self_byte_track():
-	for i, frame in enumerate(frames):   
+	for i, frame in enumerate(frames):
+		if max_frames >= 0 and i > max_frames:
+			break
 		if i < skip_n_frames:
 			continue
 
 		curr_det = model(frame)[0].boxes # RCW RGB format 
 		
 		# filter detections based on confidence - numpy
-		high_det, low_det = filter_bboxes(curr_det)
+		high_det, low_det = process_bboxes(curr_det, frame)
 
 		# get kalman predictions of prev tracks & match high conf det to preds
 		tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
@@ -91,6 +124,7 @@ def self_byte_track():
 
 			track.end = i
 			track.track_time += 1
+			track.reid = det.reid
 			track.k_filter.update(convert_bbox(det)) # update only on trusted info
 			tracks[track.id] = track
 		
@@ -102,28 +136,29 @@ def self_byte_track():
 
 			track.end = i
 			track.track_time = 0
+			track.reid = det.reid
 			tracks[id] = track
 		
 		# lost tracker or unmatched high tracker recovered -> move to tracks
 		for det, tracklet in low_matches:
 			id, track = tracklet[1].id, tracklet[1]
 
-			# tracking continues
+			track.end = i
+			track.reid = det.reid
+			track.k_filter.update(convert_bbox(det)) # update only on trusted info
+			
+			# tracking continues 
 			if track.track_time >= 0:
-				track.end = i
 				track.track_time += 1
-				track.k_filter.update(convert_bbox(det)) # update only on trusted info
-				tracks[id] = track
 				
 			# move to tracked
 			elif track.track_time < 0:
-				track.end = i
 				track.track_time = 0
-				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 
 				if id in lost_tracks:
 					del lost_tracks[id]
-				tracks[id] = track
+
+			tracks[id] = track
 
 		# lost dets not recovered
 		for tracklet in low_unmatched_tracks:
@@ -164,23 +199,25 @@ def self_byte_track():
 
 		# detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
 		# annotated_frame = annotate_detections( annotated_frame, (curr_det, (255, 255, 255)) ) # all detections
-		annotated_frame = annotate_detections( annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+		# annotated_frame = annotate_detections( annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
 		annotated_frame = annotate_tracklets( annotated_frame, filtered_tracks, (0, 255, 0) )
 		# annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
-		# annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
+		annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
 		# annotated_frame = annotate_predictions( annotated_frame, filtered_lost_tracks, (0, 0, 255) )
 		# annotated_frame = annotate_n_predictions( annotated_frame, [filtered_lost_tracks.k_filter.predict_n_steps(5, 5) for track in filtered_lost_tracks.values()], (255, 0, 0) )
 
 		# rendering
-		cv2.imshow('Object Tracking', annotated_frame)
-		if log_flag:
-			(f'{i}/{frames_len} -  dets: {len(curr_det)}, f_tracks: {len(filtered_tracks)}, f_lost_tracks: {len(filtered_lost_tracks)}')
+		if show_bool:
+			cv2.imshow('Object Tracking', annotated_frame)
+		
+		if log_bool:
+			print(f'{i}/{frames_len} -  dets: {len(curr_det)}, f_tracks: {len(filtered_tracks)}, f_lost_tracks: {len(filtered_lost_tracks)}')
 		
 		if auto_play:
-			if cv2.waitKey(1) & 0xFF == ord('q'):
+			if cv2.waitKey(1) & 0xFF == ord('q'): # dont wait
 				break
 		else:
-			key = cv2.waitKey(0) & 0xFF
+			key = cv2.waitKey(0) & 0xFF # do wait
 			if key == ord('q'):
 				break
 
