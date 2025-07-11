@@ -1,4 +1,5 @@
 import cv2
+import numpy as np
 
 def video_to_frames(video_path):
     cap = cv2.VideoCapture(video_path)
@@ -7,7 +8,7 @@ def video_to_frames(video_path):
         ret, frame = cap.read()
         if not ret:
             break
-        yield frame
+        yield np.array(frame)
     
     cap.release()
 

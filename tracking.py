@@ -49,7 +49,7 @@ def process_bboxes(detections, frame):
     all_dets = high_det + low_det
     if all_dets:
         batch_images = torch.stack([get_bbox_image(frame, det) for det in all_dets])
-        batch_features = reid_model(batch_images) # calculate reid over batch
+        batch_features = reid_model(batch_images) # batch calculate reid
         
         for i, det in enumerate(all_dets):
             det.reid = batch_features[i:i+1] # extract from batch
@@ -111,24 +111,25 @@ def self_byte_track():
 		if i < skip_n_frames:
 			continue
 
-		curr_det = model(frame)[0].boxes # RCW RGB format 
+		with timer('yolo'):
+			curr_det = model(frame)[0].boxes # RCW RGB format 
 		
-		# filter detections based on confidence - numpy
-		with timer('processing detections + reid detections'):
+		# filter detections based on confidence + add reid
+		with timer('processing detections + reid'):
 			high_det, low_det = process_bboxes(curr_det, frame)
 
 		# get kalman predictions of prev tracks & match high conf det to preds
-		with timer('kalman filter prediction + high conf matching'):
+		with timer('tracks k_filter pred + high conf matching'):
 			tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
 			high_matches, high_unmatched_dets, unmatched_tracks = greedy_match(high_det, tracklets)
 			
 		# get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
-		with timer('kalman filter prediction + high conf matching'):
+		with timer('lost tracks k_filter pred + low conf & unmatched track matching'):
 			lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
 			low_matches, _low_unmatched_dets, low_unmatched_tracks = greedy_match(low_det, lost_tracklets)
 		
 		# updating states
-		with timer('updating states'):
+		with timer('updating states (data + k_filter update)'):
 			# high conf tracking continues
 			for det, tracklet in high_matches:
 				track = tracklet[1]

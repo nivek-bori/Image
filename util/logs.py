@@ -43,7 +43,6 @@ class Logger:
 			# per timing step plot
 			plt.figure(figsize=(10, 6))
 			plt.margins(x=0)
-			plt.tight_layout()
 			plt.xticks(range(0, len(data.data), int(len(data.data) / 10)))
 			plt.title(name)
 			plt.xlabel('Log index')
@@ -54,7 +53,7 @@ class Logger:
 		# timing split pie chart
 		labels = timing_responsibility.keys()
 		split = [time / timing_total for time in timing_responsibility.values()]
-		plt.figure(figsize=(15, 9))
+		plt.figure(figsize=(10, 6))
 		plt.pie(split, labels=labels)
 		plt.title('Time Responsbility')
 
