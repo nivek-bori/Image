@@ -1,6 +1,6 @@
 import numpy as np
 import cv2  # TODO: REMOVE
-from video import video_to_frames  # TODO: REMOVE
+from util.video import video_to_frames  # TODO: REMOVE
 import random # TODO: REMOVE
 import matplotlib.pyplot as plt # TODO: REMOVE
 
@@ -51,14 +51,19 @@ def calculate_cdf(image, clip_max, luminance_idx=0):
 
 	return hist, cdf, clip_total
 
-def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=False):
+# Due to bilinear interpolation not being able to handle multiple neighbors, I wrote my own implementation
+# I did not realize that my implementation would have the same flaw
+# Flaw: Although interpolation is smooth when changing neighbors, values being interpolated are not smooth when changing neighbors...
+# 		...continued: thus the flaw is not the interpolation not being smooth but the neighboring values not being smooth
+# Solution: Do not change neighbors (ie have 2x2 shape)
+def interpolate_2x2(cdfs, pos, grid_shape, grid_size, px_strength, log_flag=False):
 	# # tile pos
-	t_y = pos[0] // grid_shape[0]
-	t_x = pos[1] // grid_shape[1]
+	t_y = pos[0] // grid_size[0]
+	t_x = pos[1] // grid_size[1]
 
     # in grid percent
-	frac_y = (pos[0] % grid_shape[0]) / (grid_shape[0] - 1)
-	frac_x = (pos[1] % grid_shape[1]) / (grid_shape[1] - 1)
+	frac_y = (pos[0] % grid_size[0]) / (grid_size[0] - 1)
+	frac_x = (pos[1] % grid_size[1]) / (grid_size[1] - 1)
 	cdist_y = abs(frac_y - 0.5)
 	cdist_x = abs(frac_x - 0.5)
 
@@ -76,7 +81,7 @@ def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=Fals
 		weight_x = cdist_x
 	elif frac_x >= 0.5 and frac_y < 0.5:
 		shift_y = t_y + (0 if t_y - 1 >= 0 else 1)
-		shift_x = t_x + (0 if t_x + 1 < num_grids[1] else -1)
+		shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
 
 		t00 = (shift_y - 1, shift_x)
 		t01 = (shift_y - 1, shift_x + 1)
@@ -86,7 +91,7 @@ def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=Fals
 		weight_y = cdist_y
 		weight_x = 1 - cdist_x
 	elif frac_x < 0.5 and frac_y >= 0.5:
-		shift_y = t_y + (0 if t_y + 1 < num_grids[0] else -1)
+		shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
 		shift_x = t_x + (0 if t_x - 1 >= 0 else 1)
 
 		t00 = (shift_y, shift_x - 1)
@@ -97,8 +102,8 @@ def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=Fals
 		weight_y = 1 - cdist_y
 		weight_x = cdist_x
 	elif frac_x >= 0.5 and frac_y >= 0.5:
-		shift_y = t_y + (0 if t_y + 1 < num_grids[0] else -1)
-		shift_x = t_x + (0 if t_x + 1 < num_grids[1] else -1)
+		shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
+		shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
 
 		t00 = (shift_y, shift_x)
 		t01 = (shift_y, shift_x + 1)
@@ -110,10 +115,10 @@ def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=Fals
 	else:
 		raise ValueError('grid does not support interpolation')
     
-	t00 = tile_POS2IDX(num_grids, t00[0], t00[1])
-	t01 = tile_POS2IDX(num_grids, t01[0], t01[1])
-	t10 = tile_POS2IDX(num_grids, t10[0], t10[1])
-	t11 = tile_POS2IDX(num_grids, t11[0], t11[1])
+	t00 = tile_POS2IDX(grid_shape, t00[0], t00[1])
+	t01 = tile_POS2IDX(grid_shape, t01[0], t01[1])
+	t10 = tile_POS2IDX(grid_shape, t10[0], t10[1])
+	t11 = tile_POS2IDX(grid_shape, t11[0], t11[1])
 
     # bilinear interpolation
 	v00 = cdfs[t00][px_strength]
@@ -128,32 +133,32 @@ def interpolate_2x2(cdfs, pos, num_grids, grid_shape, px_strength, log_flag=Fals
 
 	if log_flag and random.random() < 1:
 		print(
-			f'XX{tile_POS2IDX(num_grids, t_y, t_x)}', pos[0] % grid_shape[0], pos[1] % grid_shape[1], ' - ',
+			f'XX{tile_POS2IDX(grid_shape, t_y, t_x)}', pos[0] % grid_size[0], pos[1] % grid_size[1], ' - ',
 			weight_y, weight_x, ' - ',
 			f"{v00:.4g}", f"{v01:.4g}", f"{v10:.4g}", f"{v11:.4g}",
 			'       = ', f"{v:.4g}",
 		)
 		# print(
-		# 	tile_POS2IDX(num_grids, t_y, t_x), px_strength, ' - ', 
+		# 	tile_POS2IDX(grid_shape, t_y, t_x), px_strength, ' - ', 
 		# 	t00, t01, t10, t11, ' - ', 
 		# 	f"{v00:.4g}", f"{v01:.4g}", f"{v10:.4g}", f"{v11:.4g}", ' - ', 
 		# 	f"{v0:.4g}", f"{v1:.4g}", '       = ', f"{v:.4g}",
 		# )
 
 	if log_flag:
-		return cdfs[tile_POS2IDX(num_grids, t_y, t_x)][px_strength]
+		return cdfs[tile_POS2IDX(grid_shape, t_y, t_x)][px_strength]
 	return v
 
 
 # CLAHE
-def apply_self_clahe(image, clip_max_prec, image_type='bgr', num_grids=(3, 3), visualize_flag=False, log_flag=False):
+def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), visualize_flag=False, log_flag=False):
 	lab_image, luminance_idx = IMAGE2LAB(image, image_type)
 	height, width = lab_image.shape[:2]
 
 	# grid size
-	grid_area = num_grids[0] * num_grids[1]
-	y_step = int((height + num_grids[0] - 1) // num_grids[0]) # ceiling division
-	x_step = int((width + num_grids[1] - 1) // num_grids[1]) # ceiling division
+	grid_area = grid_shape[0] * grid_shape[1]
+	y_step = int((height + grid_shape[0] - 1) // grid_shape[0]) # ceiling division
+	x_step = int((width + grid_shape[1] - 1) // grid_shape[1]) # ceiling division
 
 	clip_max = x_step * y_step * clip_max_prec
 
@@ -182,9 +187,9 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', num_grids=(3, 3), v
 			tile_idx += 1
 	
 	if visualize_flag:
-		plt.figure(figsize=(9 * num_grids[0], 3 * num_grids[1]))
+		plt.figure(figsize=(9 * grid_shape[0], 3 * grid_shape[1]))
 		for i in range(grid_area):
-			plt.subplot(num_grids[0], num_grids[1] * 2, 2 * i + 1)
+			plt.subplot(grid_shape[0], grid_shape[1] * 2, 2 * i + 1)
 			plt.plot(range(256), hists[i], alpha=0.7, color='green')
 			plt.axhline(clip_max, color='red', linestyle='--', linewidth=1)
 			plt.title(f'Tile {i} Histogram', fontsize=8)
@@ -192,7 +197,7 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', num_grids=(3, 3), v
 			plt.ylabel('Frequency', fontsize=6)
 			plt.tick_params(axis='both', which='major', labelsize=6)
 			
-			plt.subplot(num_grids[0], num_grids[1] * 2, 2 * i + 2)
+			plt.subplot(grid_shape[0], grid_shape[1] * 2, 2 * i + 2)
 			plt.plot(range(256), cdfs[i], 'orange')
 			plt.title(f'Tile {i} CDF', fontsize=8)
 			plt.xlabel('Intensity', fontsize=6)
@@ -210,15 +215,15 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', num_grids=(3, 3), v
 	tile_idx = 0
 	for y, row in enumerate(lab_image):
 		for x, px in enumerate(row):
-			tile_idx = num_grids[1] * (y // y_step) + (x // x_step)
+			tile_idx = grid_shape[1] * (y // y_step) + (x // x_step)
 
 			# modify original lum value
 			px_strength = px[luminance_idx]
-			output[y, x, luminance_idx] = interpolate_2x2(cdfs, (y, x), num_grids, (y_step, x_step), px_strength, log_flag=log_flag)
+			output[y, x, luminance_idx] = interpolate_2x2(cdfs, (y, x), grid_shape, (y_step, x_step), px_strength, log_flag=log_flag)
 			
 	return LAB2IMAGE(output, image_type)
 
-def apply_opencv_clahe(image, clip_limit=2.0, num_grids=(8, 8), image_type='bgr'):
+def apply_opencv_clahe(image, clip_limit=2.0, grid_shape=(8, 8), image_type='bgr'):
     # Convert to LAB if color image
     if len(image.shape) == 3:
         lab_image, luminance_idx = IMAGE2LAB(image, image_type)
@@ -229,7 +234,7 @@ def apply_opencv_clahe(image, clip_limit=2.0, num_grids=(8, 8), image_type='bgr'
         lab_image = None
     
     # Create CLAHE object
-    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=num_grids)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=grid_shape)
     
     # Apply CLAHE to the L channel
     enhanced_l = clahe.apply(l_channel)
@@ -242,15 +247,16 @@ def apply_opencv_clahe(image, clip_limit=2.0, num_grids=(8, 8), image_type='bgr'
         return enhanced_l
 
 # Testing
-def test_clahe(input_file='input/video_1.mp4', num_grids=(2, 2), visualize=False, log=False, show_self=False, show_opencv=False, show_difference=False, log_frame_size=0):
+# visualize self clahe, opencv clahe, and the difference between self and opencv clahe
+def test_clahe(input_file='input/video_1.mp4', grid_shape=(2, 2), visualize=False, log=False, show_self=False, show_opencv=False, show_difference=False, log_frame_size=0):
 	# read frame
 	frame = next(video_to_frames(input_file))
 
 	# process frames in different styles
 	ineffective_frame = (0.5 * frame).astype(np.uint8)
 	lab_ineffective_frame = cv2.cvtColor(np.array(IMAGE2LAB(ineffective_frame, 'bgr')[0][:, :, 0]), cv2.COLOR_GRAY2BGR)
-	self_clahe_frame = apply_self_clahe(ineffective_frame, 0.2, image_type='bgr', num_grids=num_grids, visualize_flag=visualize, log_flag=log)
-	opencv_clahe_frame = apply_opencv_clahe(ineffective_frame, 2.0, num_grids=num_grids)
+	self_clahe_frame = apply_self_clahe(ineffective_frame, 0.2, image_type='bgr', grid_shape=grid_shape, visualize_flag=visualize, log_flag=log)
+	opencv_clahe_frame = apply_opencv_clahe(ineffective_frame, 2.0, grid_shape=grid_shape)
 
 	# show frames
 	cv2.imshow('ineffective frame', ineffective_frame)
@@ -277,9 +283,10 @@ def test_clahe(input_file='input/video_1.mp4', num_grids=(2, 2), visualize=False
 		
 	cv2.destroyAllWindows()
 
-def test_self_interpolation(num_grids=(2, 2), image_size=(400, 400), print_flag=False):
+# visualize interpolation using gray grids
+def test_self_interpolation(grid_shape=(2, 2), image_size=(400, 400), print_flag=False):
 	height, width = image_size
-	grid_rows, grid_cols = num_grids
+	grid_rows, grid_cols = grid_shape
 	img = np.zeros((height, width, 3), dtype=np.uint8)
 	
 	# Calculate tile dimensions
@@ -305,8 +312,8 @@ def test_self_interpolation(num_grids=(2, 2), image_size=(400, 400), print_flag=
 	# Apply CLAHE with the specified grid
 	img_lum = np.array(IMAGE2LAB(img, 'bgr')[0][:, :, 0])
 	img_bgr = cv2.cvtColor(img_lum, cv2.COLOR_GRAY2BGR)
-	cdf_image = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', num_grids=num_grids, visualize=False, log_flag=True), cv2.COLOR_BGR2GRAY)
-	clahe_img = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', num_grids=num_grids, visualize=False), cv2.COLOR_BGR2GRAY)
+	cdf_image = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', grid_shape=grid_shape, visualize=False, log_flag=True), cv2.COLOR_BGR2GRAY)
+	clahe_img = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', grid_shape=grid_shape, visualize=False), cv2.COLOR_BGR2GRAY)
 	
 	# Display results
 	all_imgs = np.hstack([img_lum, cdf_image, clahe_img])
@@ -316,10 +323,3 @@ def test_self_interpolation(num_grids=(2, 2), image_size=(400, 400), print_flag=
 	cv2.destroyAllWindows()
 	
 	return img, clahe_img
-
-if __name__ == "__main__":
-	# test_self_interpolation(num_grids=(2, 2), image_size=(6, 6), print_flag=True)
-	# test_self_interpolation(num_grids=(2, 2), image_size=(100, 100), print_flag=False)
-	test_clahe(num_grids=(2, 2), show_self=True, show_opencv=True, show_difference=True, log_frame_size=10)
-	# test_clahe(num_grids=(3, 3), show_self=True, show_opencv=True, show_difference=True)
-	# test_clahe(num_grids=(4, 4), show_self=True, show_opencv=True, show_difference=True)

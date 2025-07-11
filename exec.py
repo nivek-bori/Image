@@ -14,7 +14,7 @@ if args[1] in ['bytetrack', 'byte', 'b']:
 		logger = Logger()
 		logger.log_timing()
 
-if args[1]in ['ultralytics', 'ultra', 'u']:
+if args[1] in ['ultralytics', 'ultra', 'u']:
 	try:
 		print('init ultralytics')
 		
@@ -24,4 +24,3 @@ if args[1]in ['ultralytics', 'ultra', 'u']:
 
 		logger = Logger()
 		logger.log_timing()
-

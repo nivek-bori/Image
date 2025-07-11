@@ -30,17 +30,24 @@ class Logger:
 				data.clear()
 	
 	def log_timing(self):
-		# timing split data
-		timing_responsibility = {}
-		timing_total = 0.0
+		# timing split pie chart
+		labels = self.timing.keys()
+		
+		time_split = np.array([data.sum() for data in self.timing.values()])
+		total_time = time_split.sum()
+		time_split = time_split / total_time
 
+		plt.figure(figsize=(10, 6))
+		plt.pie(time_split, labels=labels)
+		plt.title('Time Responsbility')
+
+		def on_key(_event):
+			plt.close()
+		plt.gcf().canvas.mpl_connect('key_press_event', on_key)
+		plt.show()
+		
+		# per timing step plot
 		for name, data in self.timing.items():
-			# timing split data processing
-			timing_sum = data.sum()
-			timing_responsibility[name] = timing_sum
-			timing_total += timing_sum
-
-			# per timing step plot
 			plt.figure(figsize=(10, 6))
 			plt.margins(x=0)
 			plt.xticks(range(0, len(data.data), int(len(data.data) / 10)))
@@ -50,14 +57,11 @@ class Logger:
 			plt.step(range(len(data.data)), data.data)
 			plt.axhline(data.average(), color='red')
 
-		# timing split pie chart
-		labels = timing_responsibility.keys()
-		split = [time / timing_total for time in timing_responsibility.values()]
-		plt.figure(figsize=(10, 6))
-		plt.pie(split, labels=labels)
-		plt.title('Time Responsbility')
+			def on_key(_event):
+				plt.close()
+			plt.gcf().canvas.mpl_connect('key_press_event', on_key)
+			plt.show()
 
-		plt.show()
 
 class Data:
 	def __init__(self):

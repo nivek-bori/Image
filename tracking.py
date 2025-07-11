@@ -5,7 +5,9 @@ import logging
 import numpy as np
 import torchvision.transforms as transforms
 from util.logs import timer
+from util.gamma import apply_gamma
 from util.matching import greedy_match
+from util.clahe import apply_opencv_clahe
 from util.kalman_filter import KalmanFilter
 from util.load_model import load_yolo_model, load_reid_model, get_reid_model_input_layer
 from util.video import video_to_frames, get_video_frame_count
@@ -19,7 +21,7 @@ log_bool = True
 
 filter_track_time = 0
 skip_n_frames = 0
-max_frames = 10 # -1 for no max
+max_frames = -1 # -1 for no max
 
 # Initalize
 input_file = 'input/video_1.mp4'
@@ -38,7 +40,7 @@ lost_tracks = {}
 removed_tracks = []
 
 frames = video_to_frames(input_file)
-frames_len = min(max_frames, get_video_frame_count(input_file))
+frames_len = get_video_frame_count(input_file) if max_frames == -1 else min(max_frames, get_video_frame_count(input_file))
 
 # Functions/Classes
 def process_bboxes(detections, frame):
@@ -110,6 +112,12 @@ def self_byte_track():
 			break
 		if i < skip_n_frames:
 			continue
+
+		# preprocessing
+		with timer('preprocessing gamma'):
+			frame = apply_gamma(frame, gamma=1.1)
+		with timer('preprocessing clahe'):
+			frame = apply_opencv_clahe(frame, clip_limit=2, num_grids=(8, 8), image_type='bgr')
 
 		with timer('yolo'):
 			curr_det = model(frame)[0].boxes # RCW RGB format 
