@@ -11,7 +11,7 @@ def load_reid_model(model_name):
     import torchreid
     logging.getLogger('torchreid').setLevel(logging.ERROR)
     
-    all_configs = get_torchreid_model_configs()
+    all_configs = get_reid_model_configs()
     if not model_name in all_configs:
         raise Exception('reid model is not configured')
     
@@ -43,7 +43,7 @@ def get_reid_model_input_layer(model):
     else:
         return { 'layer': first_layer, 'layer_type': type(first_layer).__name__ }
 
-def get_torchreid_model_configs():
+def get_reid_model_configs():
     class Config:
         def __init__(self, path, num_classes):
             self.path = path

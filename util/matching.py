@@ -1,4 +1,3 @@
-# TODO: Implement true hungarian match
 import random
 import numpy as np
 import torch.nn.functional as F
@@ -28,7 +27,7 @@ def calculate_iou(bbox1, bbox2):
     
     return intersection / union
 
-# detections and tracks are just sorted and are returned as is
+# detections and tracks are just sorted, values are returned as is
 def greedy_match(detections, tracks, iou_threshold=0.1, age_max_weight=0.2):
     if len(detections) == 0:
         return [], [], tracks

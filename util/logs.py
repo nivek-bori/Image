@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from contextlib import contextmanager
 
-# singleton logger
+### Singleton Logger
 class Logger:
 	_instance = None
 	_initialized = False

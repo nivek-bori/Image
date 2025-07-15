@@ -1,40 +1,11 @@
+import cv2
+import random
 import numpy as np
-import cv2  # TODO: REMOVE
-from util.video import video_to_frames  # TODO: REMOVE
-import random # TODO: REMOVE
-import matplotlib.pyplot as plt # TODO: REMOVE
+import matplotlib.pyplot
+from util.video import video_to_frames, IMAGE2LAB, LAB2IMAGE
 
 
-# Functions/Classes
-def RGB2LAB(rgb_image):
-    lab_image = cv2.cvtColor(rgb_image, cv2.COLOR_RGB2LAB)
-    return lab_image, 0
-def LAB2RGB(lab_image):
-    rgb_image = cv2.cvtColor(lab_image, cv2.COLOR_LAB2RGB)
-    return rgb_image
-
-def BGR2LAB(bgr_image):
-    lab_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2LAB)
-    return lab_image, 0
-def LAB2BGR(lab_image):
-    bgr_image = cv2.cvtColor(lab_image, cv2.COLOR_LAB2BGR)
-    return bgr_image
-
-def IMAGE2LAB(image, image_type='bgr'):
-	if image_type == 'bgr':
-		return BGR2LAB(image)
-	if image_type == 'rgb':
-		return RGB2LAB(image)
-	raise ValueError('Image type not supported')
-def LAB2IMAGE(image, image_type='bgr'):
-	if image_type == 'bgr':
-		return LAB2BGR(image)
-	if image_type == 'rgb':
-		return LAB2RGB(image)
-	raise ValueError('Image type not supported')
-
-def tile_POS2IDX(num_grids, y, x):
-	return y * num_grids[1] + x
+### FUNCTIONS/CLASSES
 
 def calculate_cdf(image, clip_max, luminance_idx=0):
 	hist = np.bincount(image[:, :, luminance_idx].flatten(), minlength=256) # calculate histogram
@@ -54,102 +25,138 @@ def calculate_cdf(image, clip_max, luminance_idx=0):
 # Due to bilinear interpolation not being able to handle multiple neighbors, I wrote my own implementation
 # I did not realize that my implementation would have the same flaw
 # Flaw: Although interpolation is smooth when changing neighbors, values being interpolated are not smooth when changing neighbors...
-# 		...continued: thus the flaw is not the interpolation not being smooth but the neighboring values not being smooth
-# Solution: Do not change neighbors (ie have 2x2 shape)
-def interpolate_2x2(cdfs, pos, grid_shape, grid_size, px_strength, log_flag=False):
-	# # tile pos
-	t_y = pos[0] // grid_size[0]
-	t_x = pos[1] // grid_size[1]
+# 		...continued: thus the flaw is not unsmooth interpolation but values changing when neighbors change
+# Solution: Do not change neighbors (ie have 2x2 shape) - but this is incomplete
+def self_interpolate(image, cdfs, luminance_idx, image_shape, tile_size):
+	output = image.copy()
 
-    # in grid percent
-	frac_y = (pos[0] % grid_size[0]) / (grid_size[0] - 1)
-	frac_x = (pos[1] % grid_size[1]) / (grid_size[1] - 1)
-	cdist_y = abs(frac_y - 0.5)
-	cdist_x = abs(frac_x - 0.5)
+	height, width = image_shape[0], image_shape[1] # image
+	y_step, x_step = tile_size[0], tile_size[1] # num pixels in tile along axis xy
 
-	# neighbor calculation
-	if frac_x < 0.5 and frac_y < 0.5: # quadrant one
-		shift_y = t_y + (0 if t_y - 1 >= 0 else 1)
-		shift_x = t_x + (0 if t_x - 1 >= 0 else 1)
+	for y in range(height):
+		for x in range(width):
+			px = image[y, x, luminance_idx]
 
-		t00 = (shift_y - 1, shift_x - 1)
-		t01 = (shift_y - 1, shift_x)
-		t10 = (shift_y, shift_x - 1)
-		t11 = (shift_y, shift_x)
+			t_y, t_x = y // y_step, x // x_step # tile position
+			frac_y, frac_x = (y % y_step) / (y_step - 1), (x % x_step) / (x_step - 1) # xy position in tile
+			cdist_y, cdist_x = abs(frac_y - 0.5), abs(frac_x - 0.5) # distance from center
 
-		weight_y = cdist_y
-		weight_x = cdist_x
-	elif frac_x >= 0.5 and frac_y < 0.5:
-		shift_y = t_y + (0 if t_y - 1 >= 0 else 1)
-		shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
+			# neighbor calculation
+			if frac_x < 0.5 and frac_y < 0.5: # quadrant one
+				# if no tile up-left, current tile is up-left
+				shift_y = t_y + (0 if t_y - 1 >= 0 else 1)
+				shift_x = t_x + (0 if t_x - 1 >= 0 else 1)
 
-		t00 = (shift_y - 1, shift_x)
-		t01 = (shift_y - 1, shift_x + 1)
-		t10 = (shift_y, shift_x)
-		t11 = (shift_y, shift_x + 1)
+				t00 = (shift_y - 1, shift_x - 1)
+				t01 = (shift_y - 1, shift_x)
+				t10 = (shift_y, shift_x - 1)
+				t11 = (shift_y, shift_x)
 
-		weight_y = cdist_y
-		weight_x = 1 - cdist_x
-	elif frac_x < 0.5 and frac_y >= 0.5:
-		shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
-		shift_x = t_x + (0 if t_x - 1 >= 0 else 1)
+				weight_y = cdist_y
+				weight_x = cdist_x
+			elif frac_x >= 0.5 and frac_y < 0.5:
+				# if no tile is up-right, current tile is up-right
+				shift_y = t_y + (0 if t_y - 1 >= 0 else 1)
+				shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
 
-		t00 = (shift_y, shift_x - 1)
-		t01 = (shift_y, shift_x)
-		t10 = (shift_y + 1, shift_x - 1)
-		t11 = (shift_y + 1, shift_x)
+				t00 = (shift_y - 1, shift_x)
+				t01 = (shift_y - 1, shift_x + 1)
+				t10 = (shift_y, shift_x)
+				t11 = (shift_y, shift_x + 1)
 
-		weight_y = 1 - cdist_y
-		weight_x = cdist_x
-	elif frac_x >= 0.5 and frac_y >= 0.5:
-		shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
-		shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
+				weight_y = cdist_y
+				weight_x = 1 - cdist_x
+			elif frac_x < 0.5 and frac_y >= 0.5:
+				# if no tile is down-left, current tile is down-left
+				shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
+				shift_x = t_x + (0 if t_x - 1 >= 0 else 1)
 
-		t00 = (shift_y, shift_x)
-		t01 = (shift_y, shift_x + 1)
-		t10 = (shift_y + 1, shift_x)
-		t11 = (shift_y + 1, shift_x + 1)
+				t00 = (shift_y, shift_x - 1)
+				t01 = (shift_y, shift_x)
+				t10 = (shift_y + 1, shift_x - 1)
+				t11 = (shift_y + 1, shift_x)
 
-		weight_y = 1 - cdist_y
-		weight_x = 1 - cdist_x
-	else:
-		raise ValueError('grid does not support interpolation')
-    
-	t00 = tile_POS2IDX(grid_shape, t00[0], t00[1])
-	t01 = tile_POS2IDX(grid_shape, t01[0], t01[1])
-	t10 = tile_POS2IDX(grid_shape, t10[0], t10[1])
-	t11 = tile_POS2IDX(grid_shape, t11[0], t11[1])
+				weight_y = 1 - cdist_y
+				weight_x = cdist_x
+			elif frac_x >= 0.5 and frac_y >= 0.5:
+				# if no tile is down-right, current tile is down-right
+				shift_y = t_y + (0 if t_y + 1 < grid_shape[0] else -1)
+				shift_x = t_x + (0 if t_x + 1 < grid_shape[1] else -1)
 
-    # bilinear interpolation
-	v00 = cdfs[t00][px_strength]
-	v01 = cdfs[t01][px_strength]
-	v10 = cdfs[t10][px_strength]
-	v11 = cdfs[t11][px_strength]
-    
-    # Interpolate
-	v0 = v00 * weight_x + v01 * (1 - weight_x)
-	v1 = v10 * weight_x + v11 * (1 - weight_x)
-	v = v0 * weight_y + v1 * (1 - weight_y)
+				t00 = (shift_y, shift_x)
+				t01 = (shift_y, shift_x + 1)
+				t10 = (shift_y + 1, shift_x)
+				t11 = (shift_y + 1, shift_x + 1)
 
-	if log_flag and random.random() < 1:
-		print(
-			f'XX{tile_POS2IDX(grid_shape, t_y, t_x)}', pos[0] % grid_size[0], pos[1] % grid_size[1], ' - ',
-			weight_y, weight_x, ' - ',
-			f"{v00:.4g}", f"{v01:.4g}", f"{v10:.4g}", f"{v11:.4g}",
-			'       = ', f"{v:.4g}",
-		)
-		# print(
-		# 	tile_POS2IDX(grid_shape, t_y, t_x), px_strength, ' - ', 
-		# 	t00, t01, t10, t11, ' - ', 
-		# 	f"{v00:.4g}", f"{v01:.4g}", f"{v10:.4g}", f"{v11:.4g}", ' - ', 
-		# 	f"{v0:.4g}", f"{v1:.4g}", '       = ', f"{v:.4g}",
-		# )
+				weight_y = 1 - cdist_y
+				weight_x = 1 - cdist_x
+			else:
+				raise ValueError('grid does not support interpolation')
 
-	if log_flag:
-		return cdfs[tile_POS2IDX(grid_shape, t_y, t_x)][px_strength]
-	return v	
+			# bilinear interpolation
+			v00 = cdfs[t00[0], t00[1]][px]
+			v01 = cdfs[t01[0], t01[1]][px]
+			v10 = cdfs[t10[0], t10[1]][px]
+			v11 = cdfs[t11[0], t11[1]][px]
+			
+			# interpolate
+			v0 = v00 * weight_x + v01 * (1 - weight_x)
+			v1 = v10 * weight_x + v11 * (1 - weight_x)
+			v = v0 * weight_y + v1 * (1 - weight_y)
 
-# CLAHE
+			output[y, x, luminance_idx] = v
+
+# has issue of smooth interpolation, unsmooth change in values being interpolated
+def bilinear_interpolate(image, cdfs, luminance_idx, image_shape, grid_shape, tile_size):
+	output = image.copy()
+
+	height, width = image_shape[0], image_shape[1] # image
+	grid_shape_y, grid_shape_x = grid_shape[0], grid_shape[1] # num grids along axis xy
+	y_step, x_step = tile_size[0], tile_size[1] # num pixels in tile along axis xy
+
+	for y in range(height):
+		for x in range(width):
+			px = image[y, x, luminance_idx]
+
+			t_y, t_x = int((y - y_step / 2) / y_step), int((x - x_step / 2) / x_step) # tile position
+			frac_y, frac_x = (y % y_step) / (y_step - 1), (x % x_step) / (x_step - 1) # xy position in tile
+
+			# four corners use nearest cdf
+			if t_y < 0 and t_x < 0:
+				output_lum = cdfs[t_y + 1, t_x + 1][px]
+			elif t_y < 0 and t_x >= grid_shape_x - 1:
+				output_lum = cdfs[t_y + 1, t_x][px]
+			elif t_y >= grid_shape_y - 1 and t_x < 0:
+				output_lum = cdfs[t_y, t_x + 1][px]
+			elif t_y >= grid_shape_y - 1 and t_x >= grid_shape_x - 1:
+				output_lum = cdfs[t_y, t_x][px]
+			# four borders use two cdfs : linear interpolate
+			elif t_y < 0 or t_y >= grid_shape_y - 1:
+				t_y = 0 if t_y < 0 else grid_shape_y - 1
+
+				v0 = cdfs[t_y, t_x][px]
+				v1 = cdfs[t_y, t_x + 1][px]
+				output_lum = (1 - frac_y) * v0 + frac_y * v1
+			elif t_x < 0 or t_x >= grid_shape_x - 1:
+				t_x = 0 if t_x < 0 else grid_shape_x - 1
+
+				v0 = cdfs[t_y, t_x][px]
+				v1 = cdfs[t_y + 1, t_x][px]
+				output_lum = (1 - frac_x) * v0 + frac_x * v1
+			# inner tiles : bilinear interpolate
+			else:
+				v00 = cdfs[t_y, t_x][px]
+				v01 = cdfs[t_y, t_x + 1][px]
+				v10 = cdfs[t_y + 1, t_x][px]
+				v11 = cdfs[t_y + 1, t_x + 1][px]
+				v0 = (1 - frac_x) * v00 + frac_x * v01
+				v1 = (1 - frac_x) * v10 + frac_x * v11
+				output_lum = (1 - frac_y) * v0 + frac_y * v1
+			
+			output[y, x, luminance_idx] = output_lum
+
+
+### CLAHE
 def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), visualize_flag=False, log_flag=False):
 	lab_image, luminance_idx = IMAGE2LAB(image, image_type)
 	height, width = lab_image.shape[:2]
@@ -166,7 +173,7 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 	clip_totals = np.zeros(grid_shape) # prefix histograms
 	areas = np.zeros(grid_shape) # prefix histograms
 
-	# preprocessing (per grid values)
+	# calculate cdf for each tile
 	for y_idx in range(height // y_step):
 		y1 = y_idx * y_step
 		y2 = (y_idx + 1) * y_step
@@ -209,53 +216,9 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 		plt.gcf().canvas.mpl_connect('key_press_event', on_key)
 		plt.show()
 
-	# applying processing to each pixel
-	output = lab_image.copy()
-
-	for y in range(height):
-		for x in range(width):
-			# this is bilinear interpolation - it has the same issues as mentioned above at interpolate_2x2
-			px = lab_image[y, x, luminance_idx]
-
-			# tile position
-			t_y, t_x = int((y - y_step / 2) / y_step), int((x - x_step / 2) / x_step)
-
-			# xy position in tile
-			frac_y, frac_x = (y % y_step) / (y_step - 1), (x % x_step) / (x_step - 1)
-
-			# four corners use nearest cdf
-			if t_y < 0 and t_x < 0:
-				output_lum = cdfs[t_y + 1, t_x + 1][px]
-			elif t_y < 0 and t_x >= grid_shape[1] - 1:
-				output_lum = cdfs[t_y + 1, t_x][px]
-			elif t_y >= grid_shape[0] - 1 and t_x < 0:
-				output_lum = cdfs[t_y, t_x + 1][px]
-			elif t_y >= grid_shape[0] - 1 and t_x >= grid_shape[1] - 1:
-				output_lum = cdfs[t_y, t_x][px]
-			# four borders use two cdfs : linear interpolate
-			elif t_y < 0 or t_y >= grid_shape[0] - 1:
-				t_y = 0 if t_y < 0 else grid_shape[0] - 1
-
-				v0 = cdfs[t_y, t_x][px]
-				v1 = cdfs[t_y, t_x + 1][px]
-				output_lum = (1 - frac_y) * v0 + frac_y * v1
-			elif t_x < 0 or t_x >= grid_shape[1] - 1:
-				t_x = 0 if t_x < 0 else grid_shape[1] - 1
-
-				v0 = cdfs[t_y, t_x][px]
-				v1 = cdfs[t_y + 1, t_x][px]
-				output_lum = (1 - frac_x) * v0 + frac_x * v1
-			# inner tiles : bilinear interpolate
-			else:
-				v00 = cdfs[t_y, t_x][px]
-				v01 = cdfs[t_y, t_x + 1][px]
-				v10 = cdfs[t_y + 1, t_x][px]
-				v11 = cdfs[t_y + 1, t_x + 1][px]
-				v0 = (1 - frac_x) * v00 + frac_x * v01
-				v1 = (1 - frac_x) * v10 + frac_x * v11
-				output_lum = (1 - frac_y) * v0 + frac_y * v1
-			
-			output[y, x, luminance_idx] = output_lum
+	# interpolate each cdf
+	output = bilinear_interpolate(image, cdfs, luminance_idx, (height, width), grid_shape, (y_step, x_step))
+	# output = self_interpolate(image, cdfs, lumiance_idx, (height, width), (y_step, x_step))
 
 	return LAB2IMAGE(output, image_type)
 

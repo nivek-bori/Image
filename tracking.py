@@ -9,11 +9,15 @@ from util.gamma import apply_gamma
 from util.matching import greedy_match
 from util.clahe import apply_opencv_clahe
 from util.kalman_filter import KalmanFilter
-from util.load_model import load_yolo_model, load_reid_model, get_reid_model_input_layer
 from util.video import video_to_frames, get_video_frame_count
+from util.load_model import load_yolo_model, load_reid_model, get_reid_model_input_layer
 from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions, annotate_n_predictions
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
 logging.getLogger('torchreid').setLevel(logging.ERROR)
+
+
+### CONFIGS
+# 	should be moved into a config class
 
 auto_play = True
 show_bool = True
@@ -23,26 +27,21 @@ filter_track_time = 0
 skip_n_frames = 0
 max_frames = -1 # -1 for no max
 
-# Initalize
-input_file = 'input/video_1.mp4'
-model = load_yolo_model('models/yolo11n.pt')
-reid_model = load_reid_model('osnet_x0_25')
-
 high_conf_thres = 0.5
 low_conf_thres = 0.25
 max_lost_time = 200
 
-# self byte track
-id_counter = 0
-
-tracks = {}
-lost_tracks = {}
-removed_tracks = []
+# initialize
+input_file = 'input/video_1.mp4'
+model = load_yolo_model('models/yolo11n.pt')
+reid_model = load_reid_model('osnet_x0_25')
 
 frames = video_to_frames(input_file)
 frames_len = get_video_frame_count(input_file) if max_frames == -1 else min(max_frames, get_video_frame_count(input_file))
 
-# Functions/Classes
+
+### Functions/Classes
+
 def process_bboxes(detections, frame):
     high_det = list(filter(lambda x: x.conf >= high_conf_thres, detections))
     low_det = list(filter(lambda x: low_conf_thres <= x.conf < high_conf_thres, detections))
@@ -85,11 +84,6 @@ def get_bbox_image(frame, detection):
     tensor = transform(image)
     return tensor
 
-def generate_id():
-    global id_counter
-    id_counter += 1
-    return id_counter
-
 class Track:
     def __init__(self, id, start, bbox):
         self.id = id
@@ -105,8 +99,16 @@ class Track:
     def __repr__(self):
         return self.__str__()
 
-# Tracking
+
+### Tracking
+
 def self_byte_track():
+	id_counter = 0
+
+	tracks = {}
+	lost_tracks = {}
+	removed_tracks = []
+
 	for i, frame in enumerate(frames):
 		if max_frames >= 0 and i > max_frames:
 			break
@@ -150,7 +152,7 @@ def self_byte_track():
 			
 			# new high conf det -> new tracker
 			for det in high_unmatched_dets:
-				id = generate_id()
+				id += 1 # increment id
 				bbox = convert_bbox(det)
 				track = Track(id, i, bbox)
 

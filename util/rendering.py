@@ -1,7 +1,8 @@
 import cv2
 
-# curr_det: [cx, cy, w, h]
 def annotate_detections(annotated_frame, *boxes):
+	# curr_det: [cx, cy, w, h]
+
 	for detections, color in boxes:
 		for det in detections:
 			xywh = det.xywh[0]

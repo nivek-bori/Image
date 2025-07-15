@@ -188,5 +188,7 @@ cython_debug/
 
 # Input data files - keep folders but ignore contents
 input/*
-!input/description.txt
 models/
+dev.todo
+log.txt
+logs.txt
