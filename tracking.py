@@ -3,6 +3,7 @@ import torch
 import random
 import logging
 import torchvision.transforms as transforms
+from util.reid import Reid
 from util.logs import timer
 from util.gamma import apply_gamma
 from util.matching import greedy_match
@@ -36,7 +37,10 @@ input_file = 'input/video_1.mp4'
 model = load_yolo_model('models/yolo11n.pt')
 reid_model = load_reid_model('osnet_x0_25')
 
+reid_type, reid_mult = 'weight', 1.5
 reid_output_shape = get_reid_output_shape(reid_model)
+if isinstance(reid_output_shape, int):
+	reid_output_shape = (reid_output_shape, ) # ensure that output_shape is unpackable
 
 frames = video_to_frames(input_file)
 frames_len = get_video_frame_count(input_file) if max_frames == -1 else min(max_frames, get_video_frame_count(input_file))
@@ -93,46 +97,13 @@ class Track:
         self.end = start
         self.track_time = 0
         self.k_filter = KalmanFilter(bbox)
-        self.reid = Reid(max_reid_lookback, (512, ))
+        self.reid = Reid(reid_type, max_reid_lookback, reid_output_shape)
         
     def __str__(self):        
-        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_bbox()}), ReID: {self.reid.get_reid}"
+        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_bbox()}), ReID: {self.reid.get_reid()}"
 
     def __repr__(self):
         return self.__str__()
-
-class Reid:
-	def __init__(self, max_num, reid_shape):
-		self.max_num = max_num
-		
-		self.ave = torch.zeros(reid_shape)
-		self.reids = torch.zeros((max_num, *reid_shape))
-		self.curr_pos = 0
-		self.num = 0
-	
-	def step(self, reid):
-		# to save compute, ave is assumed to be ( x / max_num )
-		reid = reid / self.max_num
-
-		if self.num == self.max_num:
-			# remove current reid from average before adding new one in
-			self.ave -= self.reids[self.curr_pos]
-		else:
-			# new reid added -> increment count
-			self.num += 1
-
-		self.ave += reid # add new reid to average
-		self.reids[self.curr_pos] = reid # replace/add current reid with new reid
-		self.curr_pos = (self.curr_pos + 1) % self.max_num # increment pos
-	
-	def get_reid(self):
-		if self.num == self.max_num:
-			# return average as is
-			return self.ave
-		else:
-			# recalibrate average from ( x / max_num ) to ( x / num )
-			return self.ave * (self.max_num / self.num)
-
 
 
 ### Tracking
@@ -181,7 +152,7 @@ def self_byte_track():
 
 				track.end = i
 				track.track_time += 1
-				track.reid.step(det.reid)
+				track.reid.step_reid(det.reid)
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				tracks[track.id] = track
 			
@@ -193,7 +164,7 @@ def self_byte_track():
 
 				track.end = i
 				track.track_time = 0
-				track.reid.step(det.reid)
+				track.reid.step_reid(det.reid)
 				tracks[id] = track
 			
 			# lost tracker or unmatched high tracker recovered -> move to tracks
@@ -201,7 +172,7 @@ def self_byte_track():
 				id, track = tracklet[1].id, tracklet[1]
 
 				track.end = i
-				track.reid.step(det.reid)
+				track.reid.step_reid(det.reid)
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				
 				# tracking continues 

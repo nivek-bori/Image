@@ -3,7 +3,7 @@ from util.logs import Logger
 from tracking import self_byte_track, ultra_byte_track
 
 args = sys.argv
-if args[1] in ['bytetrack', 'byte', 'b']:
+if args[1] in ['bytetrack', 'byte', 'b', 'self', 's']:
 	try:
 		print('init self byte track')
 		

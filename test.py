@@ -1,5 +1,6 @@
 import sys
 from util.gamma import test_gamma
+from util.reid import test_ave_reid, test_weight_reid
 from util.clahe import test_clahe, test_self_interpolation
 
 args = sys.argv
@@ -18,6 +19,9 @@ def run_test_clahe():
 	# test_clahe(grid_shape=(3, 3), show_self=True, show_opencv=True, show_difference=True)
 	# test_clahe(grid_shape=(4, 4), show_self=True, show_opencv=True, show_difference=True)
 
+def run_test_reid():
+	test_ave_reid()
+	# test_weight_reid()
 
 # command parameters
 if args[1] in ['gamma', 'g']:
@@ -25,3 +29,6 @@ if args[1] in ['gamma', 'g']:
 
 if args[1] in ['clahe', 'c']:
 	run_test_clahe()
+
+if args[1] in ['reid', 'r']:
+	run_test_reid()
