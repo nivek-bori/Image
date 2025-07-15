@@ -1,0 +1,14 @@
+Tracking:
+	Future CLAHE Improvements (just use opencv):
+		▫ Figure out how to not mess up the color
+		▫ Figure out if it is just the interpolation that is messing up or if it is the cdf too (run non-interpolate self and 1x1 opencv if possible)
+		▫ Implement non-2x2 interpolation [https://claude.ai/chat/bdb0cfaf-7b3c-4627-b3d8-79b9a6a481be]
+
+	Improvements:
+		▫ Implement hungarian matching
+		▫ Change high_det, low_det from det.xywh[0] to just det.xywh
+		▫ Move all config stuff to exec
+
+	Issues:
+		▫ Objects coming into frame have growing bboxes, making kalman_filter think that they are expanding, which then also messes up velocity
+			▫ Implemented: dont show tracklet for multiple frames to ensure that path is smooth? using filter_track_time

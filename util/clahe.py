@@ -147,8 +147,7 @@ def interpolate_2x2(cdfs, pos, grid_shape, grid_size, px_strength, log_flag=Fals
 
 	if log_flag:
 		return cdfs[tile_POS2IDX(grid_shape, t_y, t_x)][px_strength]
-	return v
-
+	return v	
 
 # CLAHE
 def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), visualize_flag=False, log_flag=False):
@@ -162,35 +161,36 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 
 	clip_max = x_step * y_step * clip_max_prec
 
-	hists = np.zeros((grid_area), dtype=object) # histograms
-	cdfs = np.zeros((grid_area), dtype=object) # prefix histograms
-	clip_totals = np.zeros((grid_area)) # prefix histograms
-	areas = np.zeros((grid_area)) # prefix histograms
+	hists = np.zeros(grid_shape, dtype=object) # histograms
+	cdfs = np.zeros(grid_shape, dtype=object) # prefix histograms
+	clip_totals = np.zeros(grid_shape) # prefix histograms
+	areas = np.zeros(grid_shape) # prefix histograms
 
 	# preprocessing (per grid values)
-	tile_idx = 0
-	for y1 in range(0, height, y_step):
-		y2 = min(height, y1 + y_step)
-		for x1 in range(0, width, x_step):
-			x2 = min(width, x1 + x_step)
+	for y_idx in range(height // y_step):
+		y1 = y_idx * y_step
+		y2 = (y_idx + 1) * y_step
+		for x_idx in range(width // x_step):
+			x1 = x_idx * x_step
+			x2 = (x_idx + 1) * x_step
 
 			# calculation
 			tile = lab_image[y1: y2, x1: x2]
 			hist, cdf, clip_total = calculate_cdf(tile, clip_max, luminance_idx)
 
 			# storage
-			hists[tile_idx] = hist
-			cdfs[tile_idx] = cdf
-			clip_totals[tile_idx] = clip_total
-			areas[tile_idx] = (y2 - y1) * (x2 - x1)
-
-			tile_idx += 1
+			hists[y_idx, x_idx] = hist
+			cdfs[y_idx, x_idx] = cdf
+			clip_totals[y_idx, x_idx] = clip_total
+			areas[y_idx, x_idx] = (y2 - y1) * (x2 - x1)
 	
 	if visualize_flag:
 		plt.figure(figsize=(9 * grid_shape[0], 3 * grid_shape[1]))
 		for i in range(grid_area):
+			t_y, t_x = i // grid_shape[0], i % grid_shape[1]
+
 			plt.subplot(grid_shape[0], grid_shape[1] * 2, 2 * i + 1)
-			plt.plot(range(256), hists[i], alpha=0.7, color='green')
+			plt.plot(range(256), hists[t_y, t_x], alpha=0.7, color='green')
 			plt.axhline(clip_max, color='red', linestyle='--', linewidth=1)
 			plt.title(f'Tile {i} Histogram', fontsize=8)
 			plt.xlabel('Intensity', fontsize=6)
@@ -198,7 +198,7 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 			plt.tick_params(axis='both', which='major', labelsize=6)
 			
 			plt.subplot(grid_shape[0], grid_shape[1] * 2, 2 * i + 2)
-			plt.plot(range(256), cdfs[i], 'orange')
+			plt.plot(range(256), cdfs[t_y, t_x], 'orange')
 			plt.title(f'Tile {i} CDF', fontsize=8)
 			plt.xlabel('Intensity', fontsize=6)
 			plt.ylabel('CDF', fontsize=6)
@@ -212,15 +212,51 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 	# applying processing to each pixel
 	output = lab_image.copy()
 
-	tile_idx = 0
-	for y, row in enumerate(lab_image):
-		for x, px in enumerate(row):
-			tile_idx = grid_shape[1] * (y // y_step) + (x // x_step)
+	for y in range(height):
+		for x in range(width):
+			# this is bilinear interpolation - it has the same issues as mentioned above at interpolate_2x2
+			px = lab_image[y, x, luminance_idx]
 
-			# modify original lum value
-			px_strength = px[luminance_idx]
-			output[y, x, luminance_idx] = interpolate_2x2(cdfs, (y, x), grid_shape, (y_step, x_step), px_strength, log_flag=log_flag)
+			# tile position
+			t_y, t_x = int((y - y_step / 2) / y_step), int((x - x_step / 2) / x_step)
+
+			# xy position in tile
+			frac_y, frac_x = (y % y_step) / (y_step - 1), (x % x_step) / (x_step - 1)
+
+			# four corners use nearest cdf
+			if t_y < 0 and t_x < 0:
+				output_lum = cdfs[t_y + 1, t_x + 1][px]
+			elif t_y < 0 and t_x >= grid_shape[1] - 1:
+				output_lum = cdfs[t_y + 1, t_x][px]
+			elif t_y >= grid_shape[0] - 1 and t_x < 0:
+				output_lum = cdfs[t_y, t_x + 1][px]
+			elif t_y >= grid_shape[0] - 1 and t_x >= grid_shape[1] - 1:
+				output_lum = cdfs[t_y, t_x][px]
+			# four borders use two cdfs : linear interpolate
+			elif t_y < 0 or t_y >= grid_shape[0] - 1:
+				t_y = 0 if t_y < 0 else grid_shape[0] - 1
+
+				v0 = cdfs[t_y, t_x][px]
+				v1 = cdfs[t_y, t_x + 1][px]
+				output_lum = (1 - frac_y) * v0 + frac_y * v1
+			elif t_x < 0 or t_x >= grid_shape[1] - 1:
+				t_x = 0 if t_x < 0 else grid_shape[1] - 1
+
+				v0 = cdfs[t_y, t_x][px]
+				v1 = cdfs[t_y + 1, t_x][px]
+				output_lum = (1 - frac_x) * v0 + frac_x * v1
+			# inner tiles : bilinear interpolate
+			else:
+				v00 = cdfs[t_y, t_x][px]
+				v01 = cdfs[t_y, t_x + 1][px]
+				v10 = cdfs[t_y + 1, t_x][px]
+				v11 = cdfs[t_y + 1, t_x + 1][px]
+				v0 = (1 - frac_x) * v00 + frac_x * v01
+				v1 = (1 - frac_x) * v10 + frac_x * v11
+				output_lum = (1 - frac_y) * v0 + frac_y * v1
 			
+			output[y, x, luminance_idx] = output_lum
+
 	return LAB2IMAGE(output, image_type)
 
 def apply_opencv_clahe(image, clip_limit=2.0, grid_shape=(8, 8), image_type='bgr'):
@@ -309,15 +345,14 @@ def test_self_interpolation(grid_shape=(2, 2), image_size=(400, 400), print_flag
 			img[y1:y2, x1:x2, :] = [grey_values[tile_idx]] * 3
 			tile_idx += 1
 	
-	# Apply CLAHE with the specified grid
+	# ApplyCLAHE with the specified grid
 	img_lum = np.array(IMAGE2LAB(img, 'bgr')[0][:, :, 0])
 	img_bgr = cv2.cvtColor(img_lum, cv2.COLOR_GRAY2BGR)
-	cdf_image = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', grid_shape=grid_shape, visualize=False, log_flag=True), cv2.COLOR_BGR2GRAY)
-	clahe_img = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', grid_shape=grid_shape, visualize=False), cv2.COLOR_BGR2GRAY)
+	clahe_img = cv2.cvtColor(apply_self_clahe(img_bgr, clip_max_prec=0.8, image_type='bgr', grid_shape=grid_shape, visualize_flag=False), cv2.COLOR_BGR2GRAY)
 	
 	# Display results
-	all_imgs = np.hstack([img_lum, cdf_image, clahe_img])
-	print(img_lum, '\n', cdf_image, '\n', clahe_img[1 : -1, 1 : -1])
+	all_imgs = np.hstack([img_lum, clahe_img])
+	print(img_lum, '\n', clahe_img)
 	cv2.imshow(f'{grid_rows}x{grid_cols}', all_imgs)
 	cv2.waitKey(0)
 	cv2.destroyAllWindows()
