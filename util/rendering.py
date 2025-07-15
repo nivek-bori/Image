@@ -60,8 +60,6 @@ def annotate_predictions(annotated_frame, tracks, color):
         # prediction bounding box
 		cv2.circle(annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, 2) # raw cxy
 		cv2.rectangle(annotated_frame, (pred_x1, pred_y1), (pred_x2, pred_y2), color, 2)
-        
-        # print(bbox, x1, y1, x2, y2, int(w), int(h), ' - ', pred_x1, pred_y1, pred_x2, pred_y2, int(pred_w), int(pred_h)) # DEBUGGING
 	
 	return annotated_frame
 

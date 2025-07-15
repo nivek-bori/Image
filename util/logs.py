@@ -50,7 +50,7 @@ class Logger:
 		for name, data in self.timing.items():
 			plt.figure(figsize=(10, 6))
 			plt.margins(x=0)
-			plt.xticks(range(0, len(data.data), int(len(data.data) / 10)))
+			plt.xticks(range(0, len(data.data), max(1, int(len(data.data) / 10))))
 			plt.title(name)
 			plt.xlabel('Log index')
 			plt.ylabel('Time (ms)')

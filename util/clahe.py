@@ -1,7 +1,6 @@
 import cv2
-import random
 import numpy as np
-import matplotlib.pyplot
+import matplotlib.pyplot as plt
 from util.video import video_to_frames, IMAGE2LAB, LAB2IMAGE
 
 
@@ -27,11 +26,11 @@ def calculate_cdf(image, clip_max, luminance_idx=0):
 # Flaw: Although interpolation is smooth when changing neighbors, values being interpolated are not smooth when changing neighbors...
 # 		...continued: thus the flaw is not unsmooth interpolation but values changing when neighbors change
 # Solution: Do not change neighbors (ie have 2x2 shape) - but this is incomplete
-def self_interpolate(image, cdfs, luminance_idx, image_shape, tile_size):
+def self_interpolate(image, cdfs, luminance_idx, image_shape, grid_shape, tile_size):
 	output = image.copy()
 
-	height, width = image_shape[0], image_shape[1] # image
-	y_step, x_step = tile_size[0], tile_size[1] # num pixels in tile along axis xy
+	height, width = image_shape # image
+	y_step, x_step = tile_size # num pixels in tile along axis xy
 
 	for y in range(height):
 		for x in range(width):
@@ -153,7 +152,7 @@ def bilinear_interpolate(image, cdfs, luminance_idx, image_shape, grid_shape, ti
 				v1 = (1 - frac_x) * v10 + frac_x * v11
 				output_lum = (1 - frac_y) * v0 + frac_y * v1
 			
-			output[y, x, luminance_idx] = output_lum
+			output[y, x, luminance_idx]  = output_lum
 
 
 ### CLAHE
@@ -218,7 +217,7 @@ def apply_self_clahe(image, clip_max_prec, image_type='bgr', grid_shape=(3, 3), 
 
 	# interpolate each cdf
 	output = bilinear_interpolate(image, cdfs, luminance_idx, (height, width), grid_shape, (y_step, x_step))
-	# output = self_interpolate(image, cdfs, lumiance_idx, (height, width), (y_step, x_step))
+	# output = self_interpolate(image, cdfs, lumiance_idx, (height, width), grid_shape, (y_step, x_step))
 
 	return LAB2IMAGE(output, image_type)
 
@@ -245,7 +244,9 @@ def apply_opencv_clahe(image, clip_limit=2.0, grid_shape=(8, 8), image_type='bgr
     else:
         return enhanced_l
 
-# Testing
+
+### Testing
+
 # visualize self clahe, opencv clahe, and the difference between self and opencv clahe
 def test_clahe(input_file='input/video_1.mp4', grid_shape=(2, 2), visualize=False, log=False, show_self=False, show_opencv=False, show_difference=False, log_frame_size=0):
 	# read frame

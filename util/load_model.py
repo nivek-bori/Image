@@ -4,7 +4,9 @@ def load_yolo_model(model_name):
     from ultralytics import YOLO
     logging.getLogger('ultralytics').setLevel(logging.ERROR)
 
-    return YOLO(model_name, verbose=False)
+    model = YOLO(model_name, verbose=False)
+    model.eval()
+    return model
 
 def load_reid_model(model_name):
     import torch
@@ -42,6 +44,16 @@ def get_reid_model_input_layer(model):
         return { 'layer': first_layer, 'input_channels': first_layer.in_channels, 'layer_type': type(first_layer).__name__ }
     else:
         return { 'layer': first_layer, 'layer_type': type(first_layer).__name__ }
+
+def get_reid_output_shape(model):
+    import torch
+
+    if hasattr(model, 'feature_dim'):
+        return model.feature_dim
+    else:
+        dummy_input = torch.randn(1, 3, 256, 128)
+        with torch.no_grad():
+            return model(dummy_input).shape
 
 def get_reid_model_configs():
     class Config:

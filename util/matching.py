@@ -43,7 +43,7 @@ def greedy_match(detections, tracks, iou_threshold=0.1, age_max_weight=0.2):
             cost[i, j] = 1.0 + age_max_weight + 2.0 # iou max + age max + reid cosine difference max
             cost[i, j] -= iou[i, j] # iou
             cost[i, j] -= age_max_weight * (1 - 1 / (0.1 * (tracklet[1].end - tracklet[1].start) + 1)) # age
-            cost[i, j] -= F.cosine_similarity(det.reid, tracklet[1].reid, dim=1) + 1.0 # cos sim domain is -1 to 1, so normalize cost to 0 to 2
+            cost[i, j] -= F.cosine_similarity(det.reid, tracklet[1].reid.get_reid(), dim=0) + 1.0 # cos sim domain is -1 to 1, so normalize cost to 0 to 2
     
     matches = []
     unmatched_det_idx = set(range(len(detections)))
