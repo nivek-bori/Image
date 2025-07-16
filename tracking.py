@@ -1,3 +1,4 @@
+import itertools
 import cv2
 import torch
 import random
@@ -19,31 +20,33 @@ logging.getLogger('torchreid').setLevel(logging.ERROR)
 ### CONFIGS
 # 	should be moved into a config class
 
-auto_play = True
-show_bool = True
-log_bool = True
+auto_play = True # auto progress frames
+show_bool = True # render image
+log_bool = True # print logs
 
-filter_track_time = 0
-skip_n_frames = 0
-max_frames = 200 # -1 for no max
+required_tracklet_age = 0 # minimum tracklet age before render
+frame_start, frame_end = 150, 300 # range of frames to process. 0 for unset
 
-max_reid_lookback = 10
-high_conf_thres = 0.5
-low_conf_thres = 0.25
-max_lost_time = 150
+reid_type, reid_mult = 'ave', 1.5 # reid lookback type. mult is only for 'time' reid
+max_reid_lookback = 10 # how many frames reid pulls features from
 
-# initialize
+high_conf_thres = 0.5 # bytetrack high confidence detection threshold
+low_conf_thres = 0.25 # bytetrack low confidence detection threshold
+max_lost_time = 150 # tracklet  maximum time lost
+
+# Initialize
 input_file = 'input/video_1.mp4'
+
+frames, num_frames = video_to_frames(input_file), get_video_frame_count(input_file)
+frame_end = min(num_frames, frame_end) if frame_end != 0 else num_frames
+frames_len = frame_end - frame_start
+
 model = load_yolo_model('models/yolo11n.pt')
 reid_model = load_reid_model('osnet_x0_25')
 
-reid_type, reid_mult = 'weight', 1.5
 reid_output_shape = get_reid_output_shape(reid_model)
 if isinstance(reid_output_shape, int):
 	reid_output_shape = (reid_output_shape, ) # ensure that output_shape is unpackable
-
-frames = video_to_frames(input_file)
-frames_len = get_video_frame_count(input_file) if max_frames == -1 else min(max_frames, get_video_frame_count(input_file))
 
 
 ### Functions/Classes
@@ -115,12 +118,8 @@ def self_byte_track():
 	lost_tracks = {}
 	removed_tracks = []
 
-	for i, frame in enumerate(frames):
-		if max_frames >= 0 and i > max_frames:
-			break
-		if i < skip_n_frames:
-			continue
-
+	# slice frame generator to frame_start and frame_end
+	for i, frame in enumerate(itertools.islice(frames, frame_start, frame_end), start=frame_start):
 		# preprocessing
 		with timer('preprocessing gamma'):
 			frame = apply_gamma(frame, gamma=1.1)
@@ -152,7 +151,7 @@ def self_byte_track():
 
 				track.end = i
 				track.track_time += 1
-				track.reid.step_reid(det.reid)
+				track.reid.step_reid(det.reid, conf=det.conf[0])
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				tracks[track.id] = track
 			
@@ -164,7 +163,7 @@ def self_byte_track():
 
 				track.end = i
 				track.track_time = 0
-				track.reid.step_reid(det.reid)
+				track.reid.step_reid(det.reid, conf=det.conf[0])
 				tracks[id] = track
 			
 			# lost tracker or unmatched high tracker recovered -> move to tracks
@@ -172,7 +171,7 @@ def self_byte_track():
 				id, track = tracklet[1].id, tracklet[1]
 
 				track.end = i
-				track.reid.step_reid(det.reid)
+				track.reid.step_reid(det.reid, conf=det.conf[0])
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				
 				# tracking continues 
@@ -222,9 +221,9 @@ def self_byte_track():
 
 			filtered_tracks = tracks
 			filtered_lost_tracks = lost_tracks
-			if filter_track_time > 0:
-				filtered_tracks = {id: track for id, track in tracks.items() if track.track_time >= filter_track_time}
-				filtered_lost_tracks = {id: track for id, track in lost_tracks.items() if abs(track.track_time) >= filter_track_time}
+			if required_tracklet_age > 0:
+				filtered_tracks = {id: track for id, track in tracks.items() if track.track_time >= required_tracklet_age}
+				filtered_lost_tracks = {id: track for id, track in lost_tracks.items() if abs(track.track_time) >= required_tracklet_age}
 
 			# detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
 			# annotated_frame = annotate_detections( annotated_frame, (curr_det, (255, 255, 255)) ) # all detections

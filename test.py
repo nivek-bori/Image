@@ -1,6 +1,6 @@
 import sys
 from util.gamma import test_gamma
-from util.reid import test_ave_reid, test_weight_reid
+from util.reid import test_ave_reid, test_time_reid, test_weight_reid
 from util.clahe import test_clahe, test_self_interpolation
 
 args = sys.argv
@@ -21,7 +21,8 @@ def run_test_clahe():
 
 def run_test_reid():
 	test_ave_reid()
-	# test_weight_reid()
+	test_time_reid()
+	test_weight_reid()
 
 # command parameters
 if args[1] in ['gamma', 'g']:
