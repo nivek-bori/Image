@@ -55,11 +55,13 @@ class KalmanFilter:
         self.P[3, 3] *= 30.0       # Initial height uncertainty
         self.P[4:, 4:] *= 100 * 1000.0   # Very uncertain about initial velocities
         
+    # steps internal states
     def predict(self):
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
-        return self.get_bbox()
+        return self.get_cxywh()
     
+    # doesn't step internal states
     def predict_n_steps(self, steps, stride=1):
         pred_x = self.x.copy()
         pred_P = self.P.copy()
@@ -91,8 +93,13 @@ class KalmanFilter:
         I = np.eye(8)
         self.P = (I - K @ self.H) @ self.P
         
-        return self.get_bbox()
+        return self.get_cxywh()
     
-    def get_bbox(self):
+    def get_cxywh(self):
         cx, cy, w, h = self.x[:4, 0]
         return np.array([cx, cy, w, h]) # [cx, cy, w, h]
+    
+    def get_xywh(self):
+        cx, cy, w, h = self.x[:4, 0]
+        x, y = cx - w / 2, cy - h / 2
+        return np.array([x, y, w, h])

@@ -4,7 +4,9 @@ import torch
 import random
 import logging
 import itertools
+import numpy as np
 import matplotlib.pyplot as plt
+from eval import MOTDataFrame
 import torchvision.transforms as transforms
 from util.reid import Reid
 from util.logs import timer
@@ -41,8 +43,9 @@ input_file = 'input/video_1.mp4'
 frames, num_frames = video_to_frames(input_file), get_video_frame_count(input_file)
 frame_end = min(num_frames, frame_end) if frame_end != 0 else num_frames
 
-model = load_yolo_model('models/yolo11n.pt')
-reid_model = load_reid_model('osnet_x0_25')
+with timer('loading models'):
+	model = load_yolo_model('models/yolo11n.pt')
+	reid_model = load_reid_model('osnet_x0_25')
 
 reid_output_shape = get_reid_output_shape(reid_model)
 if isinstance(reid_output_shape, int):
@@ -102,7 +105,7 @@ class Track:
         self.reid = Reid(reid_type, max_reid_lookback, reid_output_shape)
         
     def __str__(self):        
-        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_bbox()}), ReID: {self.reid.get_reid()}"
+        return f"Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_cxywh()}), ReID: {self.reid.get_reid()}"
 
     def __repr__(self):
         return self.__str__()
@@ -112,13 +115,12 @@ class Track:
 
 def self_byte_track():
 	id = 0
-
 	tracks = {}
 	lost_tracks = {}
-	removed_tracks = []
+	results = []
 
 	# slice frame generator to frame_start and frame_end
-	for i, frame in enumerate(itertools.islice(frames, frame_start, frame_end), start=frame_start):
+	for frame_i, frame in enumerate(itertools.islice(frames, frame_start, frame_end), start=frame_start):
 		# frame timing
 		frame_start_t = time.perf_counter()
 
@@ -149,47 +151,58 @@ def self_byte_track():
 		
 		# updating states
 		with timer('updating states (data + k_filter update)', timeout_s=1):
+			frame_ids = []
+			frame_xywhs = []
+
 			# high conf tracking continues
 			for det, tracklet in high_matches:
 				track = tracklet[1]
 
-				track.end = i
+				track.end = frame_i
 				track.track_time += 1
 				track.reid.step_reid(det.reid, conf=det.conf[0])
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				tracks[track.id] = track
+
+				frame_ids.append(track.id)
+				frame_xywhs.append(track.k_filter.get_xywh())
 			
 			# new high conf det -> new tracker
 			for det in high_unmatched_dets:
 				id += 1 # increment id
 				bbox = convert_bbox(det)
-				track = Track(id, i, bbox)
+				track = Track(id, frame_i, bbox)
 
-				track.end = i
+				track.end = frame_i
 				track.track_time = 0
 				track.reid.step_reid(det.reid, conf=det.conf[0])
 				tracks[id] = track
+
+				frame_ids.append(track.id)
+				frame_xywhs.append(track.k_filter.get_xywh())
 			
 			# lost tracker or unmatched high tracker recovered -> move to tracks
 			for det, tracklet in low_matches:
 				id, track = tracklet[1].id, tracklet[1]
 
-				track.end = i
+				track.end = frame_i
 				track.reid.step_reid(det.reid, conf=det.conf[0])
 				track.k_filter.update(convert_bbox(det)) # update only on trusted info
 				
 				# tracking continues 
 				if track.track_time >= 0:
 					track.track_time += 1
-					
+					tracks[id] = track
 				# move to tracked
 				elif track.track_time < 0:
 					track.track_time = 0
 
 					if id in lost_tracks:
 						del lost_tracks[id]
-
-				tracks[id] = track
+					tracks[id] = track
+				
+				frame_ids.append(track.id)
+				frame_xywhs.append(track.k_filter.get_xywh())
 
 			# lost dets not recovered
 			for tracklet in low_unmatched_tracks:
@@ -197,7 +210,7 @@ def self_byte_track():
 
 				# track just lost
 				if track.track_time >= 0:
-					track.end = i
+					track.end = frame_i
 					track.track_time = -1
 					
 					if id in tracks:
@@ -206,18 +219,21 @@ def self_byte_track():
 				
 				# track not lost just now
 				elif track.track_time < 0:
-					track.end = i
+					track.end = frame_i
 					track.track_time -= 1
 
 					# lost time exceeded
 					if track.track_time * -1 > max_lost_time:
-						removed_tracks.append(lost_tracks[id]) # save it
 						if id in lost_tracks:
 							del lost_tracks[id] # delete it
 					else:
 						lost_tracks[id] = track
 					
 			# discard low unmatched dets because they are probably background
+
+		# format tracks
+		formatted_track = MOTDataFrame(frame_i, frame_ids, frame_xywhs)
+		results.append(formatted_track)
 		
 		# annotate frame
 		with timer('annotate frame', timeout_s=1):
@@ -245,19 +261,19 @@ def self_byte_track():
 		# rendering
 		if show_bool:
 			cv2.destroyAllWindows()
-			cv2.imshow(f'Object Tracking: {i}/{frame_end} {frame_t:.4g}ms', annotated_frame)
+			cv2.imshow(f'Object Tracking: {frame_i}/{frame_end} {frame_t:.4g}ms', annotated_frame)
 		
 		if log_bool[0]:
-			print(f'{i}/{frame_end} {frame_t:.4g}ms -  dets: {len(curr_det)}, tracks: {len(filtered_tracks)}, lost_tracks: {len(filtered_lost_tracks)}', end='\r')
+			print(f'{frame_i}/{frame_end} {frame_t:.4g}ms -  dets: {len(curr_det)}, tracks: {len(filtered_tracks)}, lost_tracks: {len(filtered_lost_tracks)}', end='\r')
 
 		if auto_play:
-			key = cv2.waitKey(1) & 0xFF # dont wait
-			if key == ord('w'):
+			key = cv2.waitKey(1) & 0xFF # dont wait; 1ms check window
+			if key in [ord('w'), ord(' ')]:
 				cv2.destroyAllWindows()
 				return
 		else:
 			key = cv2.waitKey(0) & 0xFF # do wait
-			if key == ord('w'):
+			if key in [ord('w'), ord(' ')]:
 				cv2.destroyAllWindows()
 				return
 
@@ -267,5 +283,20 @@ def self_byte_track():
  
 	cv2.destroyAllWindows() # rendering cleanup
 
+	# for evaulation
+	return results
+
 def ultra_byte_track():
-	model.track(input_file, show=True, save=False, tracker='models/bytetracker.yaml', show_boxes=True, show_labels=False, line_width=2)
+	ultralytics_results = model.track(input_file, show=show_bool, save=False, tracker='models/bytetracker.yaml', show_boxes=True, show_labels=False, line_width=2)
+
+	results = []
+	for frame_i, r in enumerate(ultralytics_results):
+		if r.boxes is not None and r.boxes.id is not None:
+			ids = r.boxes.id
+			xywhs = r.boxes.xywh
+			frame_results = MOTDataFrame(frame_i, ids, xywhs)
+		else:
+			frame_results = MOTDataFrame(frame_i, [], [])
+
+		results.append(frame_results)
+	return results

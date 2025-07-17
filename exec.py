@@ -53,7 +53,7 @@ if args[1] in ['bytetrack', 'byte', 'b', 'self', 's']:
 		print('end self byte track')
 
 		logger = Logger()
-		logger.log_timing()
+		# logger.log_timing()
 
 	try:
 		print('init self byte track')

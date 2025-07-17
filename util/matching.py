@@ -1,50 +1,79 @@
-import random
 import numpy as np
-import torch.nn.functional as F
 
-def calculate_iou(bbox1, bbox2):
-    cx1, cy1, w1, h1 = bbox1
-    cx2, cy2, w2, h2 = bbox2
+def calculate_iou(xywh1, xywh2):
+    # calculate intersection
+    x1 = np.maximum(xywh1[:, :, 0], xywh2[:, :, 0])
+    y1 = np.maximum(xywh1[:, :, 1], xywh2[:, :, 1])
+    x2 = np.minimum(xywh1[:, :, 0] + xywh1[:, :, 2], xywh2[:, :, 0] + xywh2[:, :, 2])
+    y2 = np.minimum(xywh1[:, :, 1] + xywh1[:, :, 3], xywh2[:, :, 1] + xywh2[:, :, 3])
     
-    x1_min, y1_min = cx1 - w1/2, cy1 - h1/2
-    x1_max, y1_max = cx1 + w1/2, cy1 + h1/2
-    x2_min, y2_min = cx2 - w2/2, cy2 - h2/2
-    x2_max, y2_max = cx2 + w2/2, cy2 + h2/2
+    width = np.maximum(0, x2 - x1)
+    height = np.maximum(0, y2 - y1)
+    intersection = width * height
+
+	# calculate area
+    area1 = xywh1[:, :, 2] * xywh1[:, :, 3]
+    area2 = xywh2[:, :, 2] * xywh2[:, :, 3]
+    area = area1 + area2
+
+	# calculate union
+    union = area - intersection
+
+	# calculate iou
+    iou = np.where(union > 0, intersection / union, 0)
+    return iou
+
+def calculate_cosine_similarity(a, b):
+    # normalize vectors
+    a_norm = a / np.linalg.norm(a, axis=-1, keepdims=True)
+    b_norm = b / np.linalg.norm(b, axis=-1, keepdims=True)
     
-    left = max(x1_min, x2_min)
-    top = max(y1_min, y2_min)
-    right = min(x1_max, x2_max)
-    bottom = min(y1_max, y2_max)
-    
-    intersection = max(0, right - left) * max(0, bottom - top)
-    
-    area1 = w1 * h1
-    area2 = w2 * h2
-    union = area1 + area2 - intersection
-    
-    if union == 0:
-        return 0.0
-    
-    return intersection / union
+    # compute dot product
+    return np.sum(a_norm * b_norm, axis=-1)
 
 def calculate_cost_mat(detections, tracks, shape, iou_threshold, age_max_weight):
-    cost = np.zeros(shape)
-    for i, det in enumerate(detections): # det = yolo detection obj
-        for j, tracklet in enumerate(tracks): # tracklet = (pred_bbox, track)
-            iou = calculate_iou(det.xywh[0], tracklet[0])
+    if len(detections) == 0 or len(tracks) == 0:
+        return np.zeros(shape)
 
-            # iou threshold not met -> inf cost
-            if iou < iou_threshold:
-                cost[i, j] = 1e6
-            # iou threshold met -> cost function
-            else:
-                cost[i, j] = 1.0 + age_max_weight + 2.0 # iou max + age max + reid cosine difference max
-                cost[i, j] -= iou # iou
-                cost[i, j] -= age_max_weight * (1 - 1 / (0.1 * (tracklet[1].end - tracklet[1].start) + 1)) # age
-                cost[i, j] -= F.cosine_similarity(det.reid, tracklet[1].reid.get_reid(), dim=0) + 1.0 # cos sim domain is -1 to 1, so normalize cost to 0 to 2
-                cost[i, j] *= 10
+    # extract important information
+    det_xywh = np.array([det.xywh[0] for det in detections])[:, np.newaxis]
+    det_reid = np.array([det.reid.cpu().numpy() for det in detections])[:, np.newaxis]
+
+    track_xywh = np.array([track[0] for track in tracks])[np.newaxis, :]
+    track_time = np.array([track[1].end - track[1].start for track in tracks])[np.newaxis, :]
+    track_reid = np.array([track[1].reid.get_reid().cpu().numpy() for track in tracks])[np.newaxis, :]
+
+    # calculate iou
+    iou = calculate_iou(det_xywh, track_xywh)
+
+    # calculate and mask cost
+    cost = np.zeros(shape)
+    cost[0 : len(detections), 0 : len(tracks)] = np.where(iou < iou_threshold, 1e6, 10 * (3.0 + age_max_weight
+                                                    - iou
+                                                    - age_max_weight * (1 - 1 / (0.1 * track_time + 1))
+                                                    - calculate_cosine_similarity(det_reid, track_reid) + 1.0
+                                       ))
     
     return cost
+
+    # # old code
+    # cost = np.zeros(shape)
+    # for i, det in enumerate(detections): # det = yolo detection obj
+    #     for j, tracklet in enumerate(tracks): # tracklet = (pred_bbox, track)
+    #         iou = calculate_iou(det.xywh[0], tracklet[0])
+
+    #         # iou threshold not met -> inf cost
+    #         if iou < iou_threshold:
+    #             cost[i, j] = 1e6
+    #         # iou threshold met -> cost function
+    #         else:
+    #             cost[i, j] = 1.0 + age_max_weight + 2.0 # iou max + age max + reid cosine difference max
+    #             cost[i, j] -= iou # iou
+    #             cost[i, j] -= age_max_weight * (1 - 1 / (0.1 * (tracklet[1].end - tracklet[1].start) + 1)) # age
+    #             cost[i, j] -= F.cosine_similarity(det.reid, tracklet[1].reid.get_reid(), dim=0) + 1.0 # cos sim domain is -1 to 1, so normalize cost to 0 to 2
+    #             cost[i, j] *= 10
+    
+    # return cost
 
 # detections and tracks are just sorted, values are returned as is
 def greedy_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2):
