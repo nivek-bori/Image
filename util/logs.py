@@ -1,4 +1,6 @@
 import time
+import signal
+import threading
 import numpy as np
 import matplotlib.pyplot as plt
 from contextlib import contextmanager
@@ -29,26 +31,32 @@ class Logger:
 			if name is None or timing_name == name:
 				data.clear()
 	
-	def log_timing(self):
-		# timing split pie chart
+	def log_timing(self, figsize=(12, 7)):
+		# pie chart labels
 		labels = self.timing.keys()
 		
+		# pie chart time splits
 		time_split = np.array([data.sum() for data in self.timing.values()])
 		total_time = time_split.sum()
 		time_split = time_split / total_time
 
-		plt.figure(figsize=(10, 6))
-		plt.pie(time_split, labels=labels)
-		plt.title('Time Responsbility')
+		# on key press code
+		def on_key(event):
+			if event.key == 'q':
+				plt.close()
 
-		def on_key(_event):
-			plt.close()
+		# time split pie chart
+		plt.figure(figsize=figsize)
+		plt.pie(time_split, labels=labels, autopct='%1.1f%%')
+		plt.title('Time Responsbility')
+		plt.legend(labels, loc="lower left", bbox_to_anchor=(-0.0541666667 * figsize[0], -0.0214285714 * figsize[1]))
+
 		plt.gcf().canvas.mpl_connect('key_press_event', on_key)
 		plt.show()
 		
 		# per timing step plot
 		for name, data in self.timing.items():
-			plt.figure(figsize=(10, 6))
+			plt.figure(figsize=figsize)
 			plt.margins(x=0)
 			plt.xticks(range(0, len(data.data), max(1, int(len(data.data) / 10))))
 			plt.title(name)
@@ -57,8 +65,6 @@ class Logger:
 			plt.step(range(len(data.data)), data.data)
 			plt.axhline(data.average(), color='red')
 
-			def on_key(_event):
-				plt.close()
 			plt.gcf().canvas.mpl_connect('key_press_event', on_key)
 			plt.show()
 
@@ -82,11 +88,24 @@ class Data:
 		return sum(self.data) / len(self.data)
 
 @contextmanager
-def timer(name):
+def timer(name, timeout_s=180):
+	def signal_handler(signum, frame):
+		timeout_flag = True
+		raise RuntimeError(f'{name} timed out after {timeout_s}s')
+
+	# store start time
 	start = time.perf_counter()
+
+	# start signal
+	signal.signal(signal.SIGALRM, signal_handler)
+	signal.alarm(int(timeout_s))
 	try:
 		yield
 	finally:
+		# log time
 		end = time.perf_counter()
 		length = 1000 * (end - start) # convert to ms
 		( Logger() ).add_timing(name, round(length, 5)) # log
+
+		# disable signal
+		signal.alarm(0)

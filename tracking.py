@@ -1,45 +1,45 @@
-import itertools
 import cv2
+import time
 import torch
 import random
 import logging
+import itertools
+import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from util.reid import Reid
 from util.logs import timer
 from util.gamma import apply_gamma
-from util.matching import greedy_match
+from util.matching import greedy_match, hungarian_match
 from util.clahe import apply_opencv_clahe
 from util.kalman_filter import KalmanFilter
 from util.video import video_to_frames, get_video_frame_count
 from util.load_model import get_reid_output_shape, load_yolo_model, load_reid_model, get_reid_model_input_layer
 from util.rendering import annotate_detections, annotate_tracklets, annotate_predictions, annotate_n_predictions
 logging.getLogger('ultralytics').setLevel(logging.ERROR)
-logging.getLogger('torchreid').setLevel(logging.ERROR)
-
 
 ### CONFIGS
-# 	should be moved into a config class
+# 	should be moved into a config class, this is so bad :(
 
 auto_play = True # auto progress frames
 show_bool = True # render image
-log_bool = True # print logs
+log_bool = (True, False, False) # print logs for frame, high conf hungarian matching, low conf hungarian matching
 
 required_tracklet_age = 0 # minimum tracklet age before render
-frame_start, frame_end = 150, 300 # range of frames to process. 0 for unset
-
+frame_start = 1 * (565) # start of frames to process. (0 * x) for unset
+frame_end = 1 * (200 + frame_start) # end of frames to process. (0 * x) for unset
+ 
 reid_type, reid_mult = 'ave', 1.5 # reid lookback type. mult is only for 'time' reid
-max_reid_lookback = 10 # how many frames reid pulls features from
+max_reid_lookback = 3 # how many frames reid pulls features from
 
 high_conf_thres = 0.5 # bytetrack high confidence detection threshold
-low_conf_thres = 0.25 # bytetrack low confidence detection threshold
-max_lost_time = 150 # tracklet  maximum time lost
+low_conf_thres = 0.3 # bytetrack low confidence detection threshold
+max_lost_time = 50 # tracklet  maximum time lost
 
 # Initialize
 input_file = 'input/video_1.mp4'
 
 frames, num_frames = video_to_frames(input_file), get_video_frame_count(input_file)
 frame_end = min(num_frames, frame_end) if frame_end != 0 else num_frames
-frames_len = frame_end - frame_start
 
 model = load_yolo_model('models/yolo11n.pt')
 reid_model = load_reid_model('osnet_x0_25')
@@ -47,7 +47,6 @@ reid_model = load_reid_model('osnet_x0_25')
 reid_output_shape = get_reid_output_shape(reid_model)
 if isinstance(reid_output_shape, int):
 	reid_output_shape = (reid_output_shape, ) # ensure that output_shape is unpackable
-
 
 ### Functions/Classes
 
@@ -120,31 +119,36 @@ def self_byte_track():
 
 	# slice frame generator to frame_start and frame_end
 	for i, frame in enumerate(itertools.islice(frames, frame_start, frame_end), start=frame_start):
+		# frame timing
+		frame_start_t = time.perf_counter()
+
 		# preprocessing
-		with timer('preprocessing gamma'):
+		with timer('preprocessing gamma', timeout_s=1):
 			frame = apply_gamma(frame, gamma=1.1)
-		with timer('preprocessing clahe'):
+		with timer('preprocessing clahe', timeout_s=1):
 			frame = apply_opencv_clahe(frame, clip_limit=2, grid_shape=(8, 8), image_type='bgr')
 
-		with timer('yolo'):
+		with timer('yolo', timeout_s=2):
 			curr_det = model(frame)[0].boxes # RCW RGB format 
 		
 		# filter detections based on confidence + add reid
-		with timer('processing detections + reid'):
+		with timer('processing detections + reid', timeout_s=2):
 			high_det, low_det = process_bboxes(curr_det, frame)
 
 		# get kalman predictions of prev tracks & match high conf det to preds
-		with timer('tracks k_filter pred + high conf matching'):
+		with timer('tracks k_filter pred + high conf matching', timeout_s=2):
 			tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
-			high_matches, high_unmatched_dets, unmatched_tracks = greedy_match(high_det, tracklets)
+			high_matches, high_unmatched_dets, unmatched_tracks = hungarian_match(high_det, tracklets, log_flag=log_bool[1])
 			
 		# get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
-		with timer('lost tracks k_filter pred + low conf & unmatched track matching'):
+		with timer('lost tracks k_filter pred + low conf & unmatched track matching', timeout_s=2):
 			lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
-			low_matches, _low_unmatched_dets, low_unmatched_tracks = greedy_match(low_det, lost_tracklets)
+			low_matches, _low_unmatched_dets, low_unmatched_tracks = hungarian_match(low_det, lost_tracklets, log_flag=log_bool[2])
+
+		# print(len(high_matches), len(high_unmatched_dets), len(unmatched_tracks), len(low_matches), len(_low_unmatched_dets), len(low_unmatched_tracks))
 		
 		# updating states
-		with timer('updating states (data + k_filter update)'):
+		with timer('updating states (data + k_filter update)', timeout_s=1):
 			# high conf tracking continues
 			for det, tracklet in high_matches:
 				track = tracklet[1]
@@ -216,7 +220,7 @@ def self_byte_track():
 			# discard low unmatched dets because they are probably background
 		
 		# annotate frame
-		with timer('annotate frame'):
+		with timer('annotate frame', timeout_s=1):
 			annotated_frame = frame.copy()
 
 			filtered_tracks = tracks
@@ -226,32 +230,42 @@ def self_byte_track():
 				filtered_lost_tracks = {id: track for id, track in lost_tracks.items() if abs(track.track_time) >= required_tracklet_age}
 
 			# detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
-			# annotated_frame = annotate_detections( annotated_frame, (curr_det, (255, 255, 255)) ) # all detections
+			annotated_frame = annotate_detections( annotated_frame, (curr_det, (255, 255, 255)) ) # all detections
 			# annotated_frame = annotate_detections( annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
 			annotated_frame = annotate_tracklets( annotated_frame, filtered_tracks, (0, 255, 0) )
+			annotated_frame = annotate_tracklets( annotated_frame, filtered_lost_tracks, (0, 0, 255) )
 			# annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
-			annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
+			# annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
 			# annotated_frame = annotate_predictions( annotated_frame, filtered_lost_tracks, (0, 0, 255) )
 			# annotated_frame = annotate_n_predictions( annotated_frame, [filtered_lost_tracks.k_filter.predict_n_steps(5, 5) for track in filtered_lost_tracks.values()], (255, 0, 0) )
 
+		frame_end_t = time.perf_counter()
+		frame_t = frame_end_t - frame_start_t
+
 		# rendering
 		if show_bool:
-			cv2.imshow('Object Tracking', annotated_frame)
+			cv2.destroyAllWindows()
+			cv2.imshow(f'Object Tracking: {i}/{frame_end} {frame_t:.4g}ms', annotated_frame)
 		
-		if log_bool:
-			print(f'{i}/{frames_len} -  dets: {len(curr_det)}, f_tracks: {len(filtered_tracks)}, f_lost_tracks: {len(filtered_lost_tracks)}', end='\r')
+		if log_bool[0]:
+			print(f'{i}/{frame_end} {frame_t:.4g}ms -  dets: {len(curr_det)}, tracks: {len(filtered_tracks)}, lost_tracks: {len(filtered_lost_tracks)}', end='\r')
 
 		if auto_play:
-			if cv2.waitKey(1) & 0xFF == ord('q'): # dont wait
-				break
+			key = cv2.waitKey(1) & 0xFF # dont wait
+			if key == ord('w'):
+				cv2.destroyAllWindows()
+				return
 		else:
 			key = cv2.waitKey(0) & 0xFF # do wait
-			if key == ord('q'):
-				break
+			if key == ord('w'):
+				cv2.destroyAllWindows()
+				return
 
-	if log_bool:
+	# cleanup
+	if log_bool[0]: # log cleanup
 		print(100 * ' ', end='\r') # clear line
-	cv2.destroyAllWindows()
+ 
+	cv2.destroyAllWindows() # rendering cleanup
 
 def ultra_byte_track():
 	model.track(input_file, show=True, save=False, tracker='models/bytetracker.yaml', show_boxes=True, show_labels=False, line_width=2)
