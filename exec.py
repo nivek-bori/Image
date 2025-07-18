@@ -1,77 +1,42 @@
-import sys
-import time
-import signal
-import _thread
 import logging
-import threading
-from pynput import keyboard # Use pynput instead of keyboard
+from util.config import ByteTrackLogConfig, ByteTrackRenderConfig, ReidConfig
 from util.logs import Logger
 from tracking import self_byte_track, ultra_byte_track
+from util.util import keyboard_quitter
+
 logging.getLogger('pynput').setLevel(logging.ERROR)
 
+# CLI parameters
+if __name__ == '__main__':
+    import sys
 
-# Keyboard quitter
-def keyboard_quitter(func, end_func):
-	keys_pressed = set()
+    args = sys.argv
 
-	def moniter_keyb():
-		with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
-			listener.join()
+    # bytetrack
+    if args[1] in ['bytetrack', 'byte', 'b', 'self', 's']:
+        try:
+            print('init self byte track')
+            log_config = ByteTrackLogConfig()
+            render_config = ByteTrackRenderConfig(frame_start=0, frame_end=50)
+            reid_config = ReidConfig()
+            keyboard_quitter(self_byte_track, cleanup_func=log_config.log_cleanup, input='input/video_1.mp4')
+        except Exception as e:
+            raise e
+        finally:
+            print('end self byte track')
 
-	def on_press(key):
-		keys_pressed.add(key)		
+            logger = Logger()
+            logger.log_timing()
 
-		w_pressed = keyboard.KeyCode(char='w') in keys_pressed or keyboard.KeyCode(char='W') in keys_pressed
-		shift_pressed = keyboard.Key.shift in keys_pressed
+    # ultralytics
+    if args[1] in ['ultralytics', 'ultra', 'u']:
+        try:
+            print('init ultralytics')
+            keyboard_quitter(ultra_byte_track)
+        except Exception as e:
+            raise e
+        finally:
+            print('end ultralytics')
 
-		if w_pressed and shift_pressed:
-			print('\nAttempting to force quit...')
-			_thread.interrupt_main()
-			print('Force quit')
-
-	def on_release(key):
-		if key in keys_pressed:
-			keys_pressed.remove(key)
-
-	keyb_thread = threading.Thread(target=moniter_keyb)
-	keyb_thread.daemon = True # allow main process to exit even if this thread is running
-	keyb_thread.start()
-
-	func() # run provided function
-
-	# wait for keyb_thread to finish
-	keyb_thread.join(timeout=0.5)
-	print('Process terminated')
-
-	# end_func() # run provided end function
-
-
-# CLI Arguement to Function Mapping
-args = sys.argv
-if args[1] in ['bytetrack', 'byte', 'b', 'self', 's']:
-	def end_func():
-		print('end self byte track')
-
-		logger = Logger()
-		# logger.log_timing()
-
-	try:
-		print('init self byte track')
-		
-		keyboard_quitter(self_byte_track, end_func)
-	finally:
-		end_func()
-
-if args[1] in ['ultralytics', 'ultra', 'u']:
-	def end_func():
-		print('end ultralytics')
-
-		logger = Logger()
-		logger.log_timing()
-
-	try:
-		print('init ultralytics')
-		
-		keyboard_quitter(ultra_byte_track, end_func)
-	finally:
-		end_func()
+            logger = Logger()
+            logger.log_timing()
