@@ -9,14 +9,14 @@ import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
 from util.reid import Reid
 from util.logs import timer
-from eval import MOTDataFrame
 from util.gamma import apply_gamma
 from util.storage import ResourceLoader
 from util.clahe import apply_opencv_clahe
 from util.kalman_filter import KalmanFilter
 from util.matching import greedy_match, hungarian_match
+from util.util import MOTDataFrame, slice_generator
 from util.video import video_to_frames, get_video_frame_count
-from util.config import ByteTrackLogConfig, ReidConfig, ByteTrackRenderConfig
+from util.config import ByteTrackLogConfig, ReidConfig, ByteTrackVideoConfig
 from util.load_model import (
     get_reid_output_shape,
     load_yolo_model,
@@ -57,15 +57,13 @@ def process_detections(detections, frame, reid_model):
 
         process_detections[i] = det
 
-    return process_detections
-        
+    return process_detections     
 
 def classify_detections(detections, high_conf_thres, low_conf_thres):
     high_det = list(filter(lambda x: x.conf >= high_conf_thres, detections))
     low_det = list(filter(lambda x: low_conf_thres <= x.conf < high_conf_thres, detections))
 
     return high_det, low_det
-
 
 def convert_bbox(detection):
     if hasattr(detection, 'xywh_v'):
@@ -75,16 +73,7 @@ def convert_bbox(detection):
 
     raise Exception('xywh does not exist')
 
-
-transform = transforms.Compose(
-    [
-        transforms.ToPILImage(),
-        transforms.Resize((256, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ]
-)
-
+transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize((256, 128)), transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
 def get_bbox_image(frame, detection):
     # get bbox image
@@ -109,8 +98,6 @@ def get_bbox_image(frame, detection):
 
     tensor = transform(image)
     return tensor
-
-
 class Track:
     def __init__(self, id, start, bbox, reid_config):
         self.id = id
@@ -118,9 +105,7 @@ class Track:
         self.end = start
         self.track_time = 0
         self.k_filter = KalmanFilter(bbox)
-        self.reid = Reid(
-            reid_config
-        )  # TODO: create reid config class w/ reid_config.reid_type, reid_config.max_reid_lookback, reid_config.reid_output_shape
+        self.reid = Reid(reid_config)
 
     def __str__(self):
         return f'Track(Id: {self.id}, Frames: {self.start}-{self.end}, Track Time: {self.track_time}, KFilter: {self.k_filter.get_cxywh()}), ReID: {self.reid.get_reid()}'
@@ -131,51 +116,39 @@ class Track:
 
 ### Tracking
 
-
-def self_byte_track(
-    input,
-    high_conf_thres=0.5,
-    low_conf_thres=0.3,
-    max_lost_time=50,
-    log_config=None,
-    render_config=None,
-    reid_config=None,
-):
-    # configs
+def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_time=50, log_config=None, video_config=None, reid_config=None):
+    # config
     if log_config is None:
-        log_config = ByteTrackLogConfig()  # default
-    if render_config is None:
-        render_config = ByteTrackRenderConfig()
+        log_config = ByteTrackLogConfig()
+    if video_config is None:
+        video_config = ByteTrackVideoConfig()
     if reid_config is None:
         reid_config = ReidConfig()
 
     # process input
+    # input is file path
     if isinstance(input, str):
         frames = video_to_frames(input)
-        num_frames = get_video_frame_count(input)
 
-        # updating frame data
-        render_config.frame_start = min(num_frames, render_config.frame_start)
-        if render_config.frame_end == 0:
-            render_config.frame_end = num_frames
-        else:
-            render_config.frame_end = min(num_frames, reid_config.frame_end)
-    elif hasattr(input, '__iter__'):  # generator or list
+        num_frames = get_video_frame_count(input)
+        max_frames = min(num_frames, video_config.frame_end) if video_config.frame_end > 0 else num_frames
+    # input is generator or list
+    elif hasattr(input, '__iter__'):
         frames = input
-        num_frames = -1
+
+        max_frames = '?'
+    # error
     else:
         raise ValueError('input must be file path or generator')
+    
+    frames = slice_generator(frames, video_config.frame_start, video_config.frame_end)
 
     # loading models
-    with timer('loading models'):
+    with timer('bytetrack loading models'):
         resource_loader = ResourceLoader()
 
-        resource_loader.set_load_function(
-            'yolo', lambda: load_yolo_model('models/yolo11n.pt')
-        )
-        resource_loader.set_load_function(
-            'reid', lambda: load_reid_model('osnet_x0_25')
-        )
+        resource_loader.set_load_function('yolo', lambda: load_yolo_model('models/yolo11n.pt'))
+        resource_loader.set_load_function('reid', lambda: load_reid_model('osnet_x0_25'))
 
         yolo_model = resource_loader.get_resource('yolo')
         reid_model = resource_loader.get_resource('reid')
@@ -191,50 +164,36 @@ def self_byte_track(
     results = []
 
     # slice frame generator to frame_start and frame_end
-    for frame_i, frame in enumerate(
-        itertools.islice(frames, render_config.frame_start, render_config.frame_end),
-        start=render_config.frame_start,
-    ):
+    for frame_i, frame in enumerate(frames, start=video_config.frame_start):
         # frame timing
         frame_start_t = time.perf_counter()
 
         # preprocessing
-        with timer('preprocessing gamma', timeout_s=1):
+        with timer('bytetrack preprocessing gamma', timeout_s=1):
             frame = apply_gamma(frame, gamma=1.1)
-        with timer('preprocessing clahe', timeout_s=1):
-            frame = apply_opencv_clahe(
-                frame, clip_limit=2, grid_shape=(8, 8), image_type='bgr'
-            )
+        with timer('bytetrack preprocessing clahe', timeout_s=1):
+            frame = apply_opencv_clahe(frame, clip_limit=2, grid_shape=(8, 8), image_type='bgr')
 
-        with timer('yolo', timeout_s=2):
+        # detection
+        with timer('bytetrack yolo detection', timeout_s=2):
             curr_det = process_detections(yolo_model(frame)[0].boxes, frame, reid_model)
-            print(curr_det)
 
         # filter detections based on confidence + add reid
-        with timer('processing detections + reid', timeout_s=2):
+        with timer('bytetrack processing detections + reid', timeout_s=2):
             high_det, low_det = classify_detections(curr_det, high_conf_thres, low_conf_thres)
 
         # get kalman predictions of prev tracks & match high conf det to preds
-        with timer('tracks k_filter pred + high conf matching', timeout_s=2):
+        with timer('bytetrack tracks k_filter pred + high conf matching', timeout_s=2):
             tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
-            high_matches, high_unmatched_dets, unmatched_tracks = hungarian_match(
-                high_det, tracklets, log_flag=log_config.log_high_conf_matching
-            )
+            high_matches, high_unmatched_dets, unmatched_tracks = hungarian_match(high_det, tracklets, log_flag=log_config.log_high_conf_matching)
 
         # get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
-        with timer(
-            'lost tracks k_filter pred + low conf & unmatched track matching',
-            timeout_s=2,
-        ):
-            lost_tracklets = [
-                (track.k_filter.predict(), track) for track in lost_tracks.values()
-            ] + unmatched_tracks
-            low_matches, _low_unmatched_dets, low_unmatched_tracks = hungarian_match(
-                low_det, lost_tracklets, log_flag=log_config.log_low_conf_matching
-            )
+        with timer('bytetrack lost tracks k_filter pred + low conf & unmatched track matching', timeout_s=2):
+            lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
+            low_matches, _low_unmatched_dets, low_unmatched_tracks = hungarian_match(low_det, lost_tracklets, log_flag=log_config.log_low_conf_matching)
 
         # updating states
-        with timer('updating states (data + k_filter update)', timeout_s=1):
+        with timer('bytetrack updating states (data + k_filter update)', timeout_s=1):
             frame_ids = []
             frame_xywhs = []
 
@@ -320,26 +279,26 @@ def self_byte_track(
         results.append(formatted_track)
 
         # annotate frame
-        with timer('annotate frame', timeout_s=1):
+        with timer('bytetrack annotate frame', timeout_s=1):
             annotated_frame = frame.copy()
 
             filtered_tracks = tracks
             filtered_lost_tracks = lost_tracks
-            if render_config.required_tracklet_age > 0:
+            if video_config.required_tracklet_age > 0:
                 filtered_tracks = {
                     id: track
                     for id, track in tracks.items()
-                    if track.track_time >= render_config.required_tracklet_age
+                    if track.track_time >= video_config.required_tracklet_age
                 }
                 filtered_lost_tracks = {
                     id: track
                     for id, track in lost_tracks.items()
-                    if abs(track.track_time) >= render_config.required_tracklet_age
+                    if abs(track.track_time) >= video_config.required_tracklet_age
                 }
 
             # detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
             # annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
-            annotated_frame = annotate_detections( annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+            annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
             annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
             annotated_frame = annotate_tracklets(annotated_frame, filtered_lost_tracks, (0, 0, 255))
             # annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
@@ -351,34 +310,37 @@ def self_byte_track(
         frame_t = frame_end_t - frame_start_t
 
         # rendering
+        log_config.log_cleanup() # initial cleanup
+
         if log_config.show_bool:
             cv2.destroyAllWindows()
-            cv2.imshow(
-                f'Object Tracking: {frame_i}/{render_config.frame_end} {frame_t:.4g}ms',
-                annotated_frame,
-            )
+            cv2.imshow(f'Object Tracking: {frame_i}/{max_frames} {frame_t:.4g}ms', annotated_frame)
 
         if log_config.log_frame_info:
-            print(
-                f'{frame_i}/{render_config.frame_end} {frame_t:.4g}ms -  dets: {len(curr_det)}, tracks: {len(filtered_tracks)}, lost_tracks: {len(filtered_lost_tracks)}',
-                end='\r',
-            )
+            end_token = '\r' if log_config.temporary_frame_info else '\n'
+            print(f'{frame_i}/{max_frames} {frame_t:.4g}ms -  dets: {len(curr_det)}, tracks: {len(filtered_tracks)}, lost_tracks: {len(filtered_lost_tracks)}', end=end_token)
 
+        if log_config.log_results_info:
+            end_token = '\r' if log_config.temporary_frame_info else '\n'
+            print(f'{frame_i} results: {formatted_track}', end=end_token)
+
+        # dont wait
         if log_config.auto_play:
-            key = cv2.waitKey(1) & 0xFF  # dont wait; 1ms check window
+            key = cv2.waitKey(1) & 0xFF
             if key in [ord('w'), ord(' ')]:
                 cv2.destroyAllWindows()
                 return
+        # do wait
         else:
             key = cv2.waitKey(0) & 0xFF  # do wait
             if key in [ord('w'), ord(' ')]:
                 cv2.destroyAllWindows()
                 return
-
-    # cleanup
+            
+    # final cleanup
     log_config.log_cleanup()
 
-    # for evaulation
+    # return results for evaulation
     return results
 
 

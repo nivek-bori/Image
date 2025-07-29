@@ -36,6 +36,12 @@ class Logger:
         if len(self.timing) == 0:
             return
 
+        # on key press code
+        def on_key(event):
+            if event.key == 'q':
+                plt.close()
+
+        # plot 1: pie chart
         # pie chart labels
         labels = self.timing.keys()
 
@@ -44,25 +50,42 @@ class Logger:
         total_time = time_split.sum()
         time_split = time_split / total_time
 
-        # on key press code
-        def on_key(event):
-            if event.key == 'q':
-                plt.close()
-
-        # time split pie chart
+        # pie chart plot
         plt.figure(figsize=figsize)
         plt.pie(time_split, labels=labels, autopct='%1.1f%%')
-        plt.title('Time Responsbility')
-        plt.legend(
-            labels,
-            loc='lower left',
-            bbox_to_anchor=(-0.0541666667 * figsize[0], -0.0214285714 * figsize[1]),
-        )
-
+        plt.title('Time Responsibility')
+        legend = plt.legend(labels, loc='lower left', bbox_to_anchor=(-0.0541666667 * figsize[0], -0.0214285714 * figsize[1]))
+        for text in legend.get_texts():
+            text.set_fontsize(8)
         plt.gcf().canvas.mpl_connect('key_press_event', on_key)
         plt.show()
 
-        # per timing step plot
+        # plot 2: data table
+        # data table data
+        plt.figure(figsize=figsize)
+        table_data = []
+        for name, data in self.timing.items():
+            table_data.append([
+                str(name),
+                f'{(100 * data.sum() / total_time):07.4f}',
+                f'{data.sum():07.4f}',
+                f'{data.average():07.4f}',
+                f'{len(data.data)}'
+            ])
+
+        # data table plot
+        col_labels = ['Name', 'Percentage (%)', 'Sum (ms)', 'Average (ms)', 'Count ()']
+        plt.axis('off')
+        table = plt.table(cellText=table_data, colLabels=col_labels, loc='center', colWidths=[0.6, 0.10, 0.10, 0.10, 0.10])
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1, 2)
+        plt.title('Timing Data Table')
+        plt.tight_layout()
+        plt.gcf().canvas.mpl_connect('key_press_event', on_key)
+        plt.show()
+
+        # plot 3: per timing step plot
         for name, data in self.timing.items():
             plt.figure(figsize=figsize)
             plt.margins(x=0)

@@ -1,6 +1,5 @@
 import numpy as np
 
-
 def calculate_iou(xywh1, xywh2):
     # calculate intersection
     x1 = np.maximum(xywh1[:, :, 0], xywh2[:, :, 0])
@@ -34,40 +33,27 @@ def calculate_cosine_similarity(a, b):
     return np.sum(a_norm * b_norm, axis=-1)
 
 
-def calculate_cost_mat(detections, tracks, shape, iou_threshold, age_max_weight):
+def calculate_hungarian_cost_mat(detections, tracks, shape=None, iou_threshold=1e5, age_max_weight=1.0):
     if len(detections) == 0 or len(tracks) == 0:
         return np.zeros(shape)
+    
+    if shape is None:
+        shape = (len(detections), len(tracks))
 
     # extract important information
     det_xywh = np.array([det.xywh_v for det in detections])[:, np.newaxis]
     det_reid = np.array([det.reid.cpu().numpy() for det in detections])[:, np.newaxis]
 
     track_xywh = np.array([track[0] for track in tracks])[np.newaxis, :]
-    track_time = np.array([track[1].end - track[1].start for track in tracks])[
-        np.newaxis, :
-    ]
-    track_reid = np.array([track[1].reid.get_reid().cpu().numpy() for track in tracks])[
-        np.newaxis, :
-    ]
+    track_time = np.array([track[1].end - track[1].start for track in tracks])[np.newaxis, :]
+    track_reid = np.array([track[1].reid.get_reid().cpu().numpy() for track in tracks])[np.newaxis, :]
 
     # calculate iou
     iou = calculate_iou(det_xywh, track_xywh)
 
     # calculate and mask cost
     cost = np.zeros(shape)
-    cost[0 : len(detections), 0 : len(tracks)] = np.where(
-        iou < iou_threshold,
-        1e6,
-        10
-        * (
-            3.0
-            + age_max_weight
-            - iou
-            - age_max_weight * (1 - 1 / (0.1 * track_time + 1))
-            - calculate_cosine_similarity(det_reid, track_reid)
-            + 1.0
-        ),
-    )
+    cost[0 : len(detections), 0 : len(tracks)] = np.where(iou < iou_threshold, 1e6, 10 * ((3.0 + age_max_weight) - iou - age_max_weight * (1 - 1 / (0.1 * track_time + 1)) - (calculate_cosine_similarity(det_reid, track_reid) + 1.0)),)
 
     return cost
 
@@ -81,7 +67,7 @@ def greedy_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2):
 
     # calculate cost matrix
     shape = (len(detections), len(tracks))
-    cost = calculate_cost_mat(detections, tracks, shape, iou_threshold, age_max_weight)
+    cost = calculate_hungarian_cost_mat(detections, tracks, shape, iou_threshold, age_max_weight)
 
     # match detections to tracklets (rows to columns)
     matches = []
@@ -113,9 +99,7 @@ def greedy_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2):
     return matches, unmatched_dets, unmatched_tracks
 
 
-def hungarian_match(
-    detections, tracks, iou_threshold=0.5, age_max_weight=0.2, log_flag=True
-):
+def hungarian_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2, log_flag=True):
     if len(detections) == 0:
         return [], [], tracks
     if len(tracks) == 0:
@@ -123,9 +107,7 @@ def hungarian_match(
 
     # calculate cost matrix. row = detections, column = tracks
     n = max(len(detections), len(tracks))
-    original_cost = calculate_cost_mat(
-        detections, tracks, (n, n), iou_threshold, age_max_weight
-    )
+    original_cost = calculate_hungarian_cost_mat(detections, tracks, (n, n), iou_threshold, age_max_weight)
     cost = original_cost.copy()
 
     if log_flag:

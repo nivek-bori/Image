@@ -316,18 +316,12 @@ def test_clahe(
 
     if show_self:
         if log_frame_size > 0:
-            print(
-                'self clahe frame:\n',
-                self_clahe_frame[0:log_frame_size, 0:log_frame_size],
-            )
+            print('self clahe frame:\n', self_clahe_frame[0:log_frame_size, 0:log_frame_size])
         cv2.imshow('self clahe frame', self_clahe_frame)
         cv2.waitKey(0)
     if show_opencv:
         if log_frame_size > 0:
-            print(
-                'opencv clahe frame:\n',
-                opencv_clahe_frame[0:log_frame_size, 0:log_frame_size],
-            )
+            print('opencv clahe frame:\n', opencv_clahe_frame[0:log_frame_size, 0:log_frame_size])
         cv2.imshow('opencv clahe frame', opencv_clahe_frame)
         cv2.waitKey(0)
     if show_difference:
