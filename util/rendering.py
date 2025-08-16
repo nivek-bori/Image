@@ -26,7 +26,7 @@ def annotate_detections(annotated_frame, *boxes):
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
 
             # detection text
-            text = f'conf: {det.conf[0]:.4g}'
+            text = f'conf: {det.conf:.4g}'
             cv2.putText(
                 annotated_frame,
                 text,

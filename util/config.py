@@ -47,10 +47,12 @@ class ByteTrackLogConfig:
 
 
 class ByteTrackVideoConfig:
-    def __init__(self, required_tracklet_age=0, frame_start=0, frame_end=0):
+    def __init__(self, data_format='video', required_tracklet_age=0, frame_start=0, frame_end=0, frame_shape=(2000, 2000)):
+        self.data_format = data_format # video, mot20
         self.required_tracklet_age = required_tracklet_age # minimum tracklet age before render
         self.frame_start = frame_start  # start of frames to process
         self.frame_end = frame_end  # end of frames to process, 0 for unset
+        self.frame_shape = frame_shape
 
 
 # create the reid config class
@@ -60,10 +62,3 @@ class ReidConfig:
         self.shape = shape  # reid output shape
         self.mult = mult  # multiplier, only for 'time' reid
         self.max_lookback = max_lookback  # how many frames reid pulls features from
-
-# EVALUATE MOT20 CONFIG
-
-class MOT20VideoConfig:
-    def __init__(self, frame_start=0, frame_end=0):
-        self.frame_start = frame_start  # start of frames to process
-        self.frame_end = frame_end  # end of frames to process, 0 for unset

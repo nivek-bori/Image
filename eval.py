@@ -1,6 +1,6 @@
 import numpy as np
 import motmetrics as mm
-from util.config import ByteTrackLogConfig, ByteTrackVideoConfig, MOT20VideoConfig
+from util.config import ByteTrackLogConfig, ByteTrackVideoConfig
 from util.rendering import bar_chart, pie_chart
 from util.util import MOTDataFrame, calculate_cost_mat, keyboard_quitter
 from tracking import self_byte_track
@@ -29,12 +29,10 @@ def evaluate_results(gt_list, ts_list):
     return summary
 
 # mot20 dataset evaluation
-def evaulate_mot20(images_folder_path, data_file_path, visual_flag=False, video_config=None, bytetrack_log_config=None, bytetrack_video_config=None):
+def evaulate_mot20(mot_folder_path, visual_flag=False, bytetrack_log_config=None, bytetrack_video_config=None):
     import cv2
 
     # default configs
-    if video_config is None:
-        video_config = MOT20VideoConfig()
     if bytetrack_log_config is None:
         bytetrack_log_config = ByteTrackLogConfig()
     if bytetrack_video_config is None:
@@ -46,18 +44,19 @@ def evaulate_mot20(images_folder_path, data_file_path, visual_flag=False, video_
     result = None
     
     # ground truth
-    with timer('mot20 ground truth'):
+    with timer('mot20 ground truth'):        
+        # read gt data
+        data_gt = np.loadtxt(os.path.join(mot_folder_path, 'gt/gt.txt'), delimiter=',', dtype=float)
+
         frame_gt = {}
-        
-        data = np.loadtxt(data_file_path, delimiter=',', dtype=float)
-        for tracklet in data:
-            # read data
+        for tracklet in data_gt:
+            # read ground truth data
             frame_id = tracklet[0].astype(int) - 1 # frames start on one for mot20
             id = tracklet[1].astype(int)
             xywh = [tracklet[2], tracklet[3], tracklet[4], tracklet[5]]
 
             # if in valid frame range -> save data
-            if video_config.frame_start <= frame_id and frame_id < video_config.frame_end:
+            if bytetrack_video_config.frame_start <= frame_id and frame_id < bytetrack_video_config.frame_end:
                 if not frame_id in frame_gt:
                     frame_gt[frame_id] = {'ids': [], 'xywhs': []}
                 frame_gt[frame_id]['ids'].append(id)
@@ -69,23 +68,55 @@ def evaulate_mot20(images_folder_path, data_file_path, visual_flag=False, video_
 
     # tracklets
     with timer('mot20 tracklets'):
-        all_files = os.listdir(images_folder_path)
-        images = sorted([f for f in all_files])
+        match bytetrack_video_config.data_format:
+            case 'video':
+                all_files = os.listdir(os.path.join(mot_folder_path, 'img1'))
+                images = sorted([f for f in all_files])
 
-        def open_images(images): # a generator
-            for filename in images:
-                filepath = os.path.join(images_folder_path, filename)
-                img = cv2.imread(filepath)
+                def open_images(images): # a generator
+                    for filename in images:
+                        filepath = os.path.join(os.path.join(mot_folder_path, 'img1'), filename)
+                        img = cv2.imread(filepath)
+                        
+                        if img is not None:
+                            yield np.array(img)
+                        else:
+                            print(f'Could not load {filename}')
                 
-                if img is not None:
-                    yield np.array(img)
-                else:
-                    print(f'Could not load {filename}')
-        
-        frames = open_images(images)
+                frames_data = open_images(images)
+            case 'mot20':
+                # read detection data
+                data_ts = np.loadtxt(os.path.join(mot_folder_path, 'det/det.txt'), delimiter=',', dtype=float)
+                
+                frame_ts = {}
+                for tracklet in data_ts:
+                    # read ground truth data
+                    frame_id = tracklet[0].astype(int) - 1 # frames start on one for mot20
+                    id = tracklet[1].astype(int)
+                    xywh = [tracklet[2] + tracklet[4] / 2, tracklet[3] + tracklet[5] / 2, tracklet[4], tracklet[5]]
+                    conf = 1.0
+
+                    if not frame_id in frame_ts:
+                        frame_ts[frame_id] = []
+                    frame_ts[frame_id].append({'conf': conf, 'xywh': xywh})
+
+                all_files = os.listdir(os.path.join(mot_folder_path, 'img1'))
+                images = sorted([f for f in all_files])
+
+                def open_images(images): # a generator
+                    for i, filename in enumerate(images):
+                        filepath = os.path.join(os.path.join(mot_folder_path, 'img1'), filename)
+                        img = cv2.imread(filepath)
+                        
+                        if img is not None:
+                            yield (np.array(img), frame_ts[i])
+                        else:
+                            print(f'Could not load {filename}')
+                
+                frames_data = open_images(images)
 
         
-        ts_list = self_byte_track(input=frames, log_config=bytetrack_log_config, video_config=bytetrack_video_config)
+        ts_list = self_byte_track(input=frames_data, log_config=bytetrack_log_config, video_config=bytetrack_video_config)
 
     # evaluate
     with timer('mot20 evaluation'):
@@ -93,9 +124,13 @@ def evaulate_mot20(images_folder_path, data_file_path, visual_flag=False, video_
         result = {k: v['ByteTrack'] if isinstance(v, dict) and 'ByteTrack' in v else v for k, v in result.to_dict().items()}  # extrack ByteTrack row and reconstruct original structure
 
     if visual_flag:
-        performance_labels = ['mota', 'motp', 'idf1']
-        performance_data = [result[label] for label in performance_labels]
-        bar_chart(title='Performance Metrics', labels=performance_labels, data=performance_data)
+        performance_labels_a = ['mota', 'motp', 'idf1']
+        performance_data_a = [result[label] for label in performance_labels_a]
+        bar_chart(title='Performance Metrics', labels=performance_labels_a, data=performance_data_a)
+
+        performance_labels_b = ['precision', 'recall']
+        performance_data_b = [result[label] for label in performance_labels_b]
+        bar_chart(title='Performance Metrics', labels=performance_labels_b, data=performance_data_b)
 
         id_labels = ['idfp', 'idfn', 'idtp']
         id_data = [result[label] for label in id_labels]
@@ -211,22 +246,21 @@ if __name__ == '__main__':
 
     args = sys.argv
 
-    # mot20
+    # mot20q
     if args[1] in ['mot20', 'mot', 'm']:
         try:
             print('motw20 evaluation started')
 
             # default configs
-            video_config = MOT20VideoConfig(frame_end=100)
             bytetrack_log_config = ByteTrackLogConfig(auto_play=True, show_bool=True, log_frame_info=True, log_results_info=False, temporary_frame_info=True)
-            bytetrack_video_config = ByteTrackVideoConfig(frame_start=video_config.frame_start, frame_end=video_config.frame_end)
+            bytetrack_video_config = ByteTrackVideoConfig(data_format='mot20', frame_start=0, frame_end=100, frame_shape=(1080, 1920))
 
             # without keyboard quitter
             if len(args) > 2 and args[2] == '-k':
-                results = evaulate_mot20(images_folder_path='input/MOT20/MOT20-01/img1', data_file_path='input/MOT20/MOT20-01/gt/gt.txt', visual_flag=True, video_config=video_config, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
+                results = evaulate_mot20(mot_folder_path='input/MOT20/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
             # with keyboard quitter
             else:
-                results = keyboard_quitter(evaulate_mot20, images_folder_path='input/MOT20/MOT20-01/img1', data_file_path='input/MOT20/MOT20-01/gt/gt.txt', visual_flag=True, video_config=video_config, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
+                results = keyboard_quitter(evaulate_mot20, mot_folder_path='input/MOT20/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
         except Exception as e:
             raise e
         finally:
@@ -234,7 +268,7 @@ if __name__ == '__main__':
 
             # logger
             logger = Logger()
-            logger.log_timing()
+            # logger.log_timing() # TODO: Add back in
 
     # waymo: waymo-open-dataset dependency, only supported on linux/google colab
     if args[1] in ['waymo', 'w']:

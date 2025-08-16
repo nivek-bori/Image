@@ -7,6 +7,7 @@ import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 import torchvision.transforms as transforms
+from util import video
 from util.reid import Reid
 from util.logs import timer
 from util.gamma import apply_gamma
@@ -34,6 +35,12 @@ logging.getLogger('ultralytics').setLevel(logging.ERROR)
 
 ### Functions/Classes
 
+class DetectionData:
+    def __init__(self, conf, reid, xywh):
+        self.conf = conf
+        self.reid = reid
+        self.xywh_v = xywh
+
 def process_detections(detections, frame, reid_model):
     if detections is None:
         return []
@@ -45,17 +52,30 @@ def process_detections(detections, frame, reid_model):
 
     # apply changes through reference
     for i, det in enumerate(detections):
-        det.reid = batch_features[i : i + 1][0]  # extract from batch
+        if hasattr(det, 'conf'):
+            conf = det.conf[0]
+        elif 'conf' in det:
+            conf = det['conf']
+        else:
+            raise Exception('detection did not have conf')
 
-        # seperate out the single valued items
-        det.cls_v = det.cls[0]
-        det.conf_v = det.conf[0].numpy()
-        det.xywh_v = det.xywh[0].numpy()
-        det.xywhn_v = det.xywhn[0].numpy()
-        det.xyxy_v = det.xyxy[0].numpy()
-        det.xyxyn_v = det.xyxyn[0].numpy()
+        reid = batch_features[i : i + 1][0]  # extract from batch
 
-        process_detections[i] = det
+        if hasattr(det, 'xywh'):
+            xywh = det.xywh[0].numpy()
+        elif 'xywh' in det:
+            xywh = det['xywh']
+        else:
+            raise Exception('detection did not have xywh')
+
+        # seperate out the single valued items & format
+        det_data = DetectionData(
+            conf,
+            reid,
+            xywh,
+        )
+
+        process_detections[i] = det_data
 
     return process_detections     
 
@@ -70,6 +90,10 @@ def convert_bbox(detection):
         return detection.xywh_v
     elif hasattr(detection, 'xywh'):
         return detection.xywh[0].cpu().numpy()
+    elif 'xywh_v' in detection:
+        return detection['xywh_v']
+    elif 'xywh' in detection:
+        return detection['xywh']
 
     raise Exception('xywh does not exist')
 
@@ -164,19 +188,27 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
     results = []
 
     # slice frame generator to frame_start and frame_end
-    for frame_i, frame in enumerate(frames, start=video_config.frame_start):
+    for frame_i, frame_data in enumerate(frames, start=video_config.frame_start):
         # frame timing
         frame_start_t = time.perf_counter()
 
-        # preprocessing
-        with timer('bytetrack preprocessing gamma', timeout_s=1):
-            frame = apply_gamma(frame, gamma=1.1)
-        with timer('bytetrack preprocessing clahe', timeout_s=1):
-            frame = apply_opencv_clahe(frame, clip_limit=2, grid_shape=(8, 8), image_type='bgr')
-
         # detection
         with timer('bytetrack yolo detection', timeout_s=2):
-            curr_det = process_detections(yolo_model(frame)[0].boxes, frame, reid_model)
+            match video_config.data_format:
+                case 'video':
+                    # preprocessing
+                    with timer('bytetrack preprocessing gamma', timeout_s=1):
+                        frame_image = apply_gamma(frame_data, gamma=1.1)
+                    with timer('bytetrack preprocessing clahe', timeout_s=1):
+                        frame_image = apply_opencv_clahe(frame_data, clip_limit=2, grid_shape=(8, 8), image_type='bgr')
+
+                    curr_det = process_detections(yolo_model(frame_data)[0].boxes, frame_data, reid_model)
+                case 'mot20':
+                    frame_image, detections = frame_data
+
+                    curr_det = process_detections(detections, frame_image, reid_model)
+                case _:
+                    raise Exception(f'{video_config.data_format} is not a valid ByteTrackVideoConfig data format')
 
         # filter detections based on confidence + add reid
         with timer('bytetrack processing detections + reid', timeout_s=2):
@@ -203,7 +235,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
 
                 track.end = frame_i
                 track.track_time += 1
-                track.reid.step_reid(det.reid, conf=det.conf[0])
+                track.reid.step_reid(det.reid, conf=det.conf)
                 track.k_filter.update(convert_bbox(det))  # update only on trusted info
                 tracks[track.id] = track
 
@@ -218,7 +250,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
 
                 track.end = frame_i
                 track.track_time = 0
-                track.reid.step_reid(det.reid, conf=det.conf[0])
+                track.reid.step_reid(det.reid, conf=det.conf)
                 tracks[id] = track
 
                 frame_ids.append(track.id)
@@ -229,7 +261,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                 id, track = tracklet[1].id, tracklet[1]
 
                 track.end = frame_i
-                track.reid.step_reid(det.reid, conf=det.conf[0])
+                track.reid.step_reid(det.reid, conf=det.conf)
                 track.k_filter.update(convert_bbox(det))  # update only on trusted info
 
                 # tracking continues
@@ -278,10 +310,10 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
         formatted_track = MOTDataFrame(frame_i, frame_ids, frame_xywhs)
         results.append(formatted_track)
 
-        # annotate frame
         with timer('bytetrack annotate frame', timeout_s=1):
-            annotated_frame = frame.copy()
+            annotated_frame = frame_image.copy()
 
+            # don't render tracks that are too young
             filtered_tracks = tracks
             filtered_lost_tracks = lost_tracks
             if video_config.required_tracklet_age > 0:
@@ -296,9 +328,14 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                     if abs(track.track_time) >= video_config.required_tracklet_age
                 }
 
+            # writing annotations
             # detection - white/gray, tracklets - green, lost tracklets - red, predictions - blue
-            # annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
-            annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+            match video_config.data_format:
+                case 'video':
+                    # annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
+                    annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+                case 'mot20':
+                    annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
             annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
             annotated_frame = annotate_tracklets(annotated_frame, filtered_lost_tracks, (0, 0, 255))
             # annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
