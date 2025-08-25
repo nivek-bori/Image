@@ -1,3 +1,4 @@
+from multiprocessing.connection import answer_challenge
 import cv2
 import time
 import torch
@@ -311,7 +312,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
         results.append(formatted_track)
 
         with timer('bytetrack annotate frame', timeout_s=1):
-            annotated_frame = frame_image.copy()
+            annotated_frame = np.array(frame_image.copy() * 0.5).astype(np.uint8) # dim the image for clearer annotations
 
             # don't render tracks that are too young
             filtered_tracks = tracks
@@ -333,10 +334,10 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
             match video_config.data_format:
                 case 'video':
                     # annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
-                    annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (200, 200, 200)) ) # classified detections
+                    annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (220, 220, 200)) ) # classified detections
                 case 'mot20':
-                    annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)))  # all detections
-            annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
+                    annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)), conf=False)  # all detections
+            # annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
             annotated_frame = annotate_tracklets(annotated_frame, filtered_lost_tracks, (0, 0, 255))
             # annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
             # annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )
@@ -370,7 +371,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
         # do wait
         else:
             key = cv2.waitKey(0) & 0xFF  # do wait
-            if key in [ord('w'), ord(' ')]:
+            if key in [ord('w')]:
                 cv2.destroyAllWindows()
                 return
             

@@ -1,5 +1,6 @@
 TODO:
 	▫ Figure out how to properly tune k_filter
+	▫ Figure out if evaluation is correct
 
 CLAHE:
 	▫ Figure out how to not mess up the color

@@ -136,6 +136,10 @@ def evaulate_mot20(mot_folder_path, visual_flag=False, bytetrack_log_config=None
         id_data = [result[label] for label in id_labels]
         pie_chart(title='Identification Metrics', labels=id_labels, data=id_data)
 
+        all_tracked_metrics = performance_data_a + performance_data_b + id_labels
+        table = np.array([all_tracked_metrics, result[all_tracked_metrics]])
+        print(table)
+
 # waymo preception dataset evaluation
 def evaulate_waymo(file_path, visual_flag=False):
     import tensorflow as tf

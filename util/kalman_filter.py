@@ -24,6 +24,20 @@ class KalmanFilter:
             ],
             dtype=np.float32,
         )
+        dt2 = 0.9 # For slower steps
+        self.F2 = np.array(
+            [
+                [1, 0, 0, 0, dt, 0, 0, 0],  # cx = cx + vx*dt
+                [0, 1, 0, 0, 0, dt, 0, 0],  # cy = cy + vy*dt
+                [0, 0, 1, 0, 0, 0, dt2, 0],  # width = width + vw*dt
+                [0, 0, 0, 1, 0, 0, 0, dt2],  # height = height + vh*dt
+                [0, 0, 0, 0, 1, 0, 0, 0],  # vx = vx
+                [0, 0, 0, 0, 0, 1, 0, 0],  # vy = vy
+                [0, 0, 0, 0, 0, 0, 1, 0],  # vw = vw
+                [0, 0, 0, 0, 0, 0, 0, 1],  # vh = vh
+            ],
+            dtype=np.float32,
+        )
 
         # Measurement matrix (we observe center position and size)
         self.H = np.array(
@@ -63,7 +77,11 @@ class KalmanFilter:
         self.P[4:, 4:] *= 100 * 1000.0  # Very uncertain about initial velocities
 
     # steps internal states
-    def predict(self):
+    def predict(self, slower=False):
+        # is it possible to slow down the speed that width and height change when k_filter is predicting w/out data?
+        # if slower:
+        #     self.x = self.F2 @ self.x
+        # else:
         self.x = self.F @ self.x
         self.P = self.F @ self.P @ self.F.T + self.Q
         return self.get_cxywh()

@@ -4,9 +4,11 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 
+line_thickness = 1
+
 ### Detection, Prediction, Tracking
 
-def annotate_detections(annotated_frame, *boxes):
+def annotate_detections(annotated_frame, *boxes, conf=True):
     # curr_det: [cx, cy, w, h]
 
     for detections, color in boxes:
@@ -21,21 +23,22 @@ def annotate_detections(annotated_frame, *boxes):
 
             # detection bounding box
             cv2.circle(
-                annotated_frame, (int(xywh[0]), int(xywh[1])), 6, color, 2
+                annotated_frame, (int(xywh[0]), int(xywh[1])), 6, color, line_thickness
             )  # raw xy
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, line_thickness)
 
             # detection text
-            text = f'conf: {det.conf:.4g}'
-            cv2.putText(
-                annotated_frame,
-                text,
-                (int(x1), int(y2 + 15)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (0, 0, 0),
-                2,
-            )
+            if conf:
+                text = f'conf: {det.conf:.4g}'
+                cv2.putText(
+                    annotated_frame,
+                    text,
+                    (int(x1), int(y2 + 15)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (0, 0, 0),
+                    line_thickness,
+                )
 
     return annotated_frame
 
@@ -53,9 +56,9 @@ def annotate_tracklets(annotated_frame, tracks, color):
 
         # tracking bounding box
         cv2.circle(
-            annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, 2
+            annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, line_thickness
         )  # raw cxy
-        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, line_thickness)
 
         # tracking text
         text = f'id: {id}'
@@ -66,7 +69,7 @@ def annotate_tracklets(annotated_frame, tracks, color):
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (0, 0, 0),
-            2,
+            line_thickness
         )
 
     return annotated_frame
@@ -85,9 +88,9 @@ def annotate_predictions(annotated_frame, tracks, color):
 
         # prediction bounding box
         cv2.circle(
-            annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, 2
+            annotated_frame, (int(bbox[0]), int(bbox[1])), 6, color, line_thickness
         )  # raw cxy
-        cv2.rectangle(annotated_frame, (pred_x1, pred_y1), (pred_x2, pred_y2), color, 2)
+        cv2.rectangle(annotated_frame, (pred_x1, pred_y1), (pred_x2, pred_y2), color, line_thickness)
 
     return annotated_frame
 
@@ -112,9 +115,9 @@ def annotate_n_predictions(annotated_frame, pred_tracks, color):
                 (int(bbox[0, 0]), int(bbox[1, 0])),
                 int(weight * 6),
                 weighted_color,
-                2,
+                line_thickness
             )  # raw cxy
-            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), weighted_color, 2)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), weighted_color, line_thickness)
 
     return annotated_frame
 
