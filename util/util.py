@@ -79,6 +79,8 @@ def keyboard_quitter(func, cleanup_func=None, *args, **kwargs):
     keyb_thread.start()
 
     try:
+        if func is None:
+            raise Exception('Function provided returned NoneType. Ensure function is passed, not called')
         output = func(*args, **kwargs)  # run provided function, store output
     except Exception as e:
         raise

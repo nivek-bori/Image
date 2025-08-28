@@ -16,7 +16,7 @@ if __name__ == '__main__':
     if args[1] in ['bytetrack', 'byte', 'b', 'self', 's']:
         try:
             print('init self byte track')
-            log_config = ByteTrackLogConfig()
+            log_config = ByteTrackLogConfig(auto_play=True, show_bool=True, log_frame_info=True)
             video_config = ByteTrackVideoConfig(frame_start=0, frame_end=50)
             reid_config = ReidConfig()
             keyboard_quitter(self_byte_track, input='input/video_1.mp4', cleanup_func=log_config.log_cleanup, log_config=log_config, video_config=video_config, reid_config=reid_config)

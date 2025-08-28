@@ -76,6 +76,6 @@ def get_reid_model_configs():
 
     config = {
         'osnet_ain_x1_0': Config('models/osnet_ain_x1_0.pth', 4101),
-        'osnet_x0_25': Config('models/osnet_x0_25.pth', 4101),
+        'osnet_x0_25': Config('models/osnet_x0_25.pth', 1000),
     }
     return config

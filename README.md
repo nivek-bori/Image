@@ -3,7 +3,8 @@ preprocess frame:
 	input(frame) -> gamma correction -> clahe -> output(processed frame)
 
 detect objects using yolo model:
-	input(processed frame) -> yolo model -> output(detections)
+	(method 1) input(processed frame) -> yolo model -> output(detections)
+	(method 2) input(dataset ground truth) -> output(detections)
 
 classify detections based on confidence & calculate reid in batch
 	input(detections) -> reid model -> output(detections with reid)
@@ -11,11 +12,11 @@ classify detections based on confidence & calculate reid in batch
 
 match high conf detections w/ previous tracklets predictions
 	input(tracklets) -> kalman filter -> output(tracklet prediction)
-	input(detection, tracklet prediction) -> greedy matching using cost = f(IoU, age) -> output(matched, unmatched)
+	input(detection, tracklet prediction) -> hungarian matching using cost = f(IoU, age) -> output(matched, unmatched)
 
 match low conf detections w/ lost tracklets
 	input(lost tracklets) -> kalman filter output(lost tracklet predictions)
-	intput(detections, lost tracklet predictions) -> greedy matching using cost = f(IoU, age) -> output(matched, unmatched)
+	intput(detections, lost tracklet predictions) -> hungarian matching using cost = f(IoU, age) -> output(matched, unmatched)
 
 update states
 

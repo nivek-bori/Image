@@ -119,6 +119,7 @@ class Data:
         return sum(self.data) / len(self.data)
 
 
+useTimeout = False
 @contextmanager
 def timer(name, timeout_s=180):
     def signal_handler(signum, frame):
@@ -129,8 +130,9 @@ def timer(name, timeout_s=180):
     start = time.perf_counter()
 
     # start signal
-    signal.signal(signal.SIGALRM, signal_handler)
-    signal.alarm(int(timeout_s))
+    if useTimeout:
+        signal.signal(signal.SIGALRM, signal_handler)
+        signal.alarm(int(timeout_s))
     try:
         yield
     finally:

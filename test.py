@@ -25,6 +25,14 @@ def run_test_reid():
     test_time_reid()
     test_weight_reid()
 
+def run_test_opencv():
+    try:
+        import cv2
+        print("OpenCV imported successfully")
+        print(f"OpenCV version: {cv2.__version__}")
+    except ImportError as e:
+        print(f"Import error: {e}")
+
 
 # CLI parameters
 if __name__ == '__main__':
@@ -33,10 +41,13 @@ if __name__ == '__main__':
     args = sys.argv
 
     if args[1] in ['gamma', 'g']:
-        keyboard_quitter(run_test_gamma())
+        keyboard_quitter(run_test_gamma)
 
     if args[1] in ['clahe', 'c']:
-        keyboard_quitter(run_test_clahe())
+        keyboard_quitter(run_test_clahe)
 
     if args[1] in ['reid', 'r']:
-        keyboard_quitter(run_test_reid())
+        keyboard_quitter(run_test_reid)
+
+    if args[1] in ['opencv', 'o']:
+        keyboard_quitter(run_test_opencv)

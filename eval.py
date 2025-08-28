@@ -115,6 +115,10 @@ def evaulate_mot20(mot_folder_path, visual_flag=False, bytetrack_log_config=None
                 
                 frames_data = open_images(images)
 
+                filepath = os.path.join(os.path.join(mot_folder_path, 'img1'), images[0])
+                img = cv2.imread(filepath)
+                frame_shape = img.shape
+
         
         ts_list = self_byte_track(input=frames_data, log_config=bytetrack_log_config, video_config=bytetrack_video_config)
 
@@ -124,6 +128,10 @@ def evaulate_mot20(mot_folder_path, visual_flag=False, bytetrack_log_config=None
         result = {k: v['ByteTrack'] if isinstance(v, dict) and 'ByteTrack' in v else v for k, v in result.to_dict().items()}  # extrack ByteTrack row and reconstruct original structure
 
     if visual_flag:
+        for gt, ts in zip(gt_list, ts_list):
+            frame = np.zeros(frame_shape)
+            annotate_frame(frame, (gt, (0, 0, 255)), (ts, (0, 255, 0)), conf=False)
+
         performance_labels_a = ['mota', 'motp', 'idf1']
         performance_data_a = [result[label] for label in performance_labels_a]
         bar_chart(title='Performance Metrics', labels=performance_labels_a, data=performance_data_a)
@@ -261,10 +269,10 @@ if __name__ == '__main__':
 
             # without keyboard quitter
             if len(args) > 2 and args[2] == '-k':
-                results = evaulate_mot20(mot_folder_path='input/MOT20/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
+                results = evaulate_mot20(mot_folder_path='input/MOT20/train/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
             # with keyboard quitter
             else:
-                results = keyboard_quitter(evaulate_mot20, mot_folder_path='input/MOT20/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
+                results = keyboard_quitter(evaulate_mot20, mot_folder_path='input/MOT20/train/MOT20-01', visual_flag=True, bytetrack_log_config=bytetrack_log_config, bytetrack_video_config=bytetrack_video_config)
         except Exception as e:
             raise e
         finally:

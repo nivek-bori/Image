@@ -179,14 +179,6 @@ def hungarian_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2, l
     # instead of keeping track of vertice weights, edge weigths are manipulated to represent the excess weight of its nodes. Future references to vertices will be implemented through manipulating node weights
     cost = original_cost.copy()
 
-def temp_hungarian_match(original_cost, log_flag=False):
-    # TODO: REMOVE
-    original_cost = np.array(original_cost)
-    n = max(len(original_cost), len(original_cost[0]))
-    detections = range(len(original_cost))
-    tracks = range(len(original_cost[0]))
-    cost = original_cost.copy()
-
     if log_flag:
         print(f'step 0\n{cost}\n')
 
@@ -256,10 +248,10 @@ lines:
                 cost[:, c] = -1
                 if r < len(detections) and c < len(tracks):
                     matches.append((detections[r], tracks[c]))
-                elif r >= len(detections):
-                    unmatched_dets.append(detections[r])
-                elif c >= len(tracks):
+                elif r >= len(detections) and c < len(tracks):
                     unmatched_tracks.append(tracks[c])
+                elif c >= len(tracks) and r < len(detections):
+                    unmatched_dets.append(detections[r])
                 else:
                     raise Exception('Invalid matching')
                 found_match = True
@@ -302,14 +294,15 @@ if __name__ == '__main__':
     data_array = np.array(data_array)
     answer = np.array(answer)
 
-    ret = np.array(temp_hungarian_match(data_array, log_flag=True)[0])
-    print('returned matches:\n', ret)
+    # to use this function, slice the hungarian_match function and replace the cost function with the data_array
+    # ret = np.array(temp_hungarian_match(data_array, log_flag=True)[0])
+    # print('returned matches:\n', ret)
 
-    matches = np.zeros_like(data_array)
-    for pos in ret:
-        matches[pos[0], pos[1]] = 1
+    # matches = np.zeros_like(data_array)
+    # for pos in ret:
+    #     matches[pos[0], pos[1]] = 1
 
-    print('final answer:\n', np.array(matches))
-    print('true answe:\n', np.array(answer))
-    print(f'passed: {(matches == answer).all()}')
-    print(f'final cost: {(data_array * matches).sum()}, true cost: {(data_array * answer).sum()}')
+    # print('final answer:\n', np.array(matches))
+    # print('true answe:\n', np.array(answer))
+    # print(f'passed: {(matches == answer).all()}')
+    # print(f'final cost: {(data_array * matches).sum()}, true cost: {(data_array * answer).sum()}')
