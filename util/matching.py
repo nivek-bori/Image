@@ -1,4 +1,5 @@
 from collections import defaultdict
+from sys import orig_argv
 import numpy as np
 import numpy.ma as ma
 
@@ -176,6 +177,11 @@ def hungarian_match(detections, tracks, iou_threshold=0.5, age_max_weight=0.2, l
     n = max(len(detections), len(tracks))
     original_cost = calculate_hungarian_cost_mat(detections, tracks, (n, n), iou_threshold, age_max_weight)
 
+# add back in for hungarian matching testing
+# def temp_hungarian_match(original_cost, log_flag):
+#     n = original_cost.shape[0]
+#     detections, tracks = range(n), range(n)
+
     # instead of keeping track of vertice weights, edge weigths are manipulated to represent the excess weight of its nodes. Future references to vertices will be implemented through manipulating node weights
     cost = original_cost.copy()
 
@@ -247,7 +253,11 @@ lines:
                 cost[r, :] = -1
                 cost[:, c] = -1
                 if r < len(detections) and c < len(tracks):
-                    matches.append((detections[r], tracks[c]))
+                    if original_cost[r, c] < 1e6:
+                        matches.append((detections[r], tracks[c]))
+                    else:
+                        unmatched_tracks.append(tracks[c])
+                        unmatched_dets.append(detections[r])
                 elif r >= len(detections) and c < len(tracks):
                     unmatched_tracks.append(tracks[c])
                 elif c >= len(tracks) and r < len(detections):
@@ -263,11 +273,15 @@ lines:
             cost[r, :] = -1
             cost[:, c] = -1
             if r < len(detections) and c < len(tracks):
-                matches.append((detections[r], tracks[c]))
-            elif r >= len(detections):
-                unmatched_dets.append(detections[r])
-            elif c >= len(tracks):
+                if original_cost[r, c] < 1e6:
+                    matches.append((detections[r], tracks[c]))
+                else:
+                    unmatched_tracks.append(tracks[c])
+                    unmatched_dets.append(detections[r])
+            elif r >= len(detections) and c < len(tracks):
                 unmatched_tracks.append(tracks[c])
+            elif c >= len(tracks) and r < len(detections):
+                unmatched_dets.append(detections[r])
             else:
                 raise Exception('Invalid matching')
         
@@ -294,15 +308,15 @@ if __name__ == '__main__':
     data_array = np.array(data_array)
     answer = np.array(answer)
 
-    # to use this function, slice the hungarian_match function and replace the cost function with the data_array
-    # ret = np.array(temp_hungarian_match(data_array, log_flag=True)[0])
-    # print('returned matches:\n', ret)
+    # to use this function, slice the hungarian_match function and replace the cost function with the data_array, create temporary detections and tracks
+    ret = np.array(temp_hungarian_match(data_array, log_flag=True)[0])
+    print('returned matches:\n', ret)
 
-    # matches = np.zeros_like(data_array)
-    # for pos in ret:
-    #     matches[pos[0], pos[1]] = 1
+    matches = np.zeros_like(data_array)
+    for pos in ret:
+        matches[pos[0], pos[1]] = 1
 
-    # print('final answer:\n', np.array(matches))
-    # print('true answe:\n', np.array(answer))
-    # print(f'passed: {(matches == answer).all()}')
-    # print(f'final cost: {(data_array * matches).sum()}, true cost: {(data_array * answer).sum()}')
+    print('final answer:\n', np.array(matches))
+    print('true answe:\n', np.array(answer))
+    print(f'passed: {(matches == answer).all()}')
+    print(f'final cost: {(data_array * matches).sum()}, true cost: {(data_array * answer).sum()}')

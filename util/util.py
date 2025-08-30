@@ -49,6 +49,19 @@ def slice_generator(gen, start, end):
             return
 
 
+def wait_key_press():
+    # Create window and force focus
+    cv2.namedWindow('Press any key to continue...', cv2.WINDOW_NORMAL)
+    cv2.imshow('Press any key to continue...', np.zeros((200, 400, 3)))
+    # cv2.setWindowProperty('Test', cv2.WND_PROP_TOPMOST, 1)
+    cv2.waitKey(0)
+    # cv2.setWindowProperty('Test', cv2.WND_PROP_TOPMOST, 0)
+
+    print('Press any key to continue...')
+    key = cv2.waitKey(0) & 0xFF
+    cv2.destroyAllWindows()
+
+
 def keyboard_quitter(func, cleanup_func=None, *args, **kwargs):
     keys_pressed = set()
 

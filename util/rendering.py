@@ -28,7 +28,7 @@ def annotate_detections(annotated_frame, *boxes, conf=True):
             cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, line_thickness)
 
             # detection text
-            if conf:
+            if conf and hasattr(det, 'conf'):
                 text = f'conf: {det.conf:.4g}'
                 cv2.putText(
                     annotated_frame,
@@ -121,18 +121,32 @@ def annotate_n_predictions(annotated_frame, pred_tracks, color):
 
     return annotated_frame
 
-def bar_chart(title, labels, data):
+def bar_chart(title, labels, data, ax=None, fig=None, show_plot=True):
+    if ax is None:
+        fig, ax = plt.subplots()
+    
     data = np.maximum(0, np.array(data))
-    bars = plt.bar(labels, data)
-    plt.title(title)
+    bars = ax.bar(labels, data)
+    ax.set_title(title)
     for bar in bars:
         height = bar.get_height()
-        plt.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom')
-    plt.show()
+        ax.text(bar.get_x() + bar.get_width() / 2, height, f'{height:.2f}', ha='center', va='bottom')
+    
+    if show_plot:
+        plt.show()
+    
+    return fig, ax
 
-def pie_chart(title, labels, data):
+def pie_chart(title, labels, data, ax=None, fig=None, show_plot=True):
+    if ax is None:
+        fig, ax = plt.subplots()
+    
     data = np.maximum(0, np.array(data))
-    wedges, texts, autotexts = plt.pie(data, labels=labels, autopct='%1.1f%%', startangle=90)
-    plt.title(title)
-    plt.legend(wedges, labels, loc='lower left')
-    plt.show()
+    wedges, texts, autotexts = ax.pie(data, labels=labels, autopct='%1.1f%%', startangle=90)
+    ax.set_title(title)
+    ax.legend(wedges, labels, loc='lower left')
+    
+    if show_plot:
+        plt.show()
+    
+    return fig, ax

@@ -1,4 +1,9 @@
 TODO:
+	☐ make update states factory
+	☐ fix idfp is negative
+	☐ hota evaluation module (trackeval library)
+	☐ fix mota1, motp and idf1 are okay
+	☐ try own backbone or try mamba
 	▫ Figure out how to properly tune k_filter
 	▫ Figure out if evaluation is correct
 

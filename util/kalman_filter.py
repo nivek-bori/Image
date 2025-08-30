@@ -74,7 +74,7 @@ class KalmanFilter:
         self.P[:2, :2] *= 0.0  # Initial position uncertainty
         self.P[2, 2] *= 30.0  # Initial width uncertainty
         self.P[3, 3] *= 30.0  # Initial height uncertainty
-        self.P[4:, 4:] *= 100 * 1000.0  # Very uncertain about initial velocities
+        self.P[4:, 4:] *= 1000 * 1000.0  # Very uncertain about initial velocities
 
     # steps internal states
     def predict(self, slower=False):

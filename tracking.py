@@ -98,6 +98,31 @@ def convert_bbox(detection):
 
     raise Exception('xywh does not exist')
 
+def matching_factory_a(tracks, lost_tracks, high_det, low_det, log_config):
+    # get kalman predictions of prev tracks & match high conf det to preds
+    with timer('bytetrack tracks k_filter pred + high conf matching', timeout_s=2):
+        tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
+        high_matches, high_unmatched_dets, unmatched_tracks = hungarian_match(high_det, tracklets, log_flag=log_config.log_high_conf_matching)
+
+    # get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
+    with timer('bytetrack lost tracks k_filter pred + low conf & unmatched track matching', timeout_s=2):
+        lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
+        low_matches, low_unmatched_dets, low_unmatched_tracks = hungarian_match(low_det, lost_tracklets, log_flag=log_config.log_low_conf_matching)
+
+    # continue_tracks, new, recover, continue_lost, unmatched
+
+    continue_tracks = high_matches
+    new = high_unmatched_dets
+    recover = low_matches
+    continue_lost = low_unmatched_tracks
+    unmatched = low_unmatched_dets
+
+    return continue_tracks, new, recover, continue_lost, unmatched
+
+def matching_factory_b(tracks, lost_tracks, high_det, low_det, log_config):
+    # TODO: finish
+    return
+
 transform = transforms.Compose([transforms.ToPILImage(), transforms.Resize((256, 128)), transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
 def get_bbox_image(frame, detection):
@@ -123,6 +148,8 @@ def get_bbox_image(frame, detection):
 
     tensor = transform(image)
     return tensor
+
+
 class Track:
     def __init__(self, id, start, bbox, reid_config):
         self.id = id
@@ -215,23 +242,16 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
         with timer('bytetrack processing detections + reid', timeout_s=2):
             high_det, low_det = classify_detections(curr_det, high_conf_thres, low_conf_thres)
 
-        # get kalman predictions of prev tracks & match high conf det to preds
-        with timer('bytetrack tracks k_filter pred + high conf matching', timeout_s=2):
-            tracklets = [(track.k_filter.predict(), track) for track in tracks.values()]
-            high_matches, high_unmatched_dets, unmatched_tracks = hungarian_match(high_det, tracklets, log_flag=log_config.log_high_conf_matching)
-
-        # get kalman predictions of prev lost tracks + tracks lost this frame & match low conf det to lost preds for recover
-        with timer('bytetrack lost tracks k_filter pred + low conf & unmatched track matching', timeout_s=2):
-            lost_tracklets = [(track.k_filter.predict(), track) for track in lost_tracks.values()] + unmatched_tracks
-            low_matches, _low_unmatched_dets, low_unmatched_tracks = hungarian_match(low_det, lost_tracklets, log_flag=log_config.log_low_conf_matching)
+        # match detections to tracks & determine update states
+        continue_tracks, new, recover, continue_lost, _unmatched = matching_factory_a()
 
         # updating states
         with timer('bytetrack updating states (data + k_filter update)', timeout_s=1):
             frame_ids = []
             frame_xywhs = []
 
-            # high conf tracking continues
-            for det, tracklet in high_matches:
+            # continue
+            for det, tracklet in continue_tracks:
                 track = tracklet[1]
 
                 track.end = frame_i
@@ -243,8 +263,8 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                 frame_ids.append(track.id)
                 frame_xywhs.append(track.k_filter.get_xywh())
 
-            # new high conf det -> new tracker
-            for det in high_unmatched_dets:
+            # new
+            for det in new:
                 id += 1  # increment id
                 bbox = convert_bbox(det)
                 track = Track(id, frame_i, bbox, reid_config)
@@ -257,8 +277,8 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                 frame_ids.append(track.id)
                 frame_xywhs.append(track.k_filter.get_xywh())
 
-            # lost tracker or unmatched high tracker recovered -> move to tracks
-            for det, tracklet in low_matches:
+            # recover
+            for det, tracklet in recover:
                 id, track = tracklet[1].id, tracklet[1]
 
                 track.end = frame_i
@@ -280,8 +300,8 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                 frame_ids.append(track.id)
                 frame_xywhs.append(track.k_filter.get_xywh())
 
-            # lost dets not recovered
-            for tracklet in low_unmatched_tracks:
+            # continue lost
+            for tracklet in continue_lost:
                 id, track = tracklet[1].id, tracklet[1]
 
                 # track just lost
@@ -337,7 +357,7 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                     annotated_frame = annotate_detections(annotated_frame, (high_det, (255, 255, 255)), (low_det, (220, 220, 200)) ) # classified detections
                 case 'mot20':
                     annotated_frame = annotate_detections(annotated_frame, (curr_det, (255, 255, 255)), conf=False)  # all detections
-            # annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
+            annotated_frame = annotate_tracklets(annotated_frame, filtered_tracks, (0, 255, 0))
             annotated_frame = annotate_tracklets(annotated_frame, filtered_lost_tracks, (0, 0, 255))
             # annotated_frame = annotate_predictions( annotated_frame, filtered_tracks, (255, 0, 0) )
             # annotated_frame = annotate_n_predictions( annotated_frame, [track.k_filter.predict_n_steps(steps=5, stride=7) for track in filtered_tracks.values()], (255, 0, 0) )

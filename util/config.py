@@ -62,3 +62,9 @@ class ReidConfig:
         self.shape = shape  # reid output shape
         self.mult = mult  # multiplier, only for 'time' reid
         self.max_lookback = max_lookback  # how many frames reid pulls features from
+
+class Mot20Config:
+    def __init__(self, plot_metrics=True, render=False, auto_play=True):
+        self.plot_metrics = plot_metrics
+        self.render = render
+        self.auto_play = auto_play
