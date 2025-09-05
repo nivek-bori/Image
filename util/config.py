@@ -11,7 +11,11 @@ class ByteTrackLogConfig:
         temporary_frame_info=True,
         log_high_conf_matching=False,
         log_low_conf_matching=False,
+        log_matching_cost=False,
+        auto_play_matching_costs=True,
+        log_matching_cost_cycle=1
     ):
+        self.log_matching_cost_cycle = log_matching_cost_cycle
         if all_logs is True:
             self.auto_play = True
             self.show_bool = True
@@ -20,6 +24,8 @@ class ByteTrackLogConfig:
             self.temporary_frame_info = True
             self.log_high_conf_matching = True
             self.log_low_conf_matching = True
+            self.log_matching_cost = True
+            self.auto_play_matching_cost = True
         elif all_logs is False:
             self.auto_play = False
             self.show_bool = False
@@ -28,6 +34,8 @@ class ByteTrackLogConfig:
             self.temporary_frame_info = False
             self.log_high_conf_matching = False
             self.log_low_conf_matching = False
+            self.log_matching_cost = False
+            self.auto_play_matching_cost = False
         else:
             self.auto_play = auto_play
             self.show_bool = show_bool
@@ -36,6 +44,8 @@ class ByteTrackLogConfig:
             self.temporary_frame_info = temporary_frame_info
             self.log_high_conf_matching = log_high_conf_matching
             self.log_low_conf_matching = log_low_conf_matching
+            self.log_matching_cost = log_matching_cost
+            self.auto_play_matching_cost = auto_play_matching_cost
 
     def log_cleanup(self):
         import cv2
