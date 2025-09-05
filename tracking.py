@@ -15,7 +15,7 @@ from util.gamma import apply_gamma
 from util.storage import ResourceLoader
 from util.clahe import apply_opencv_clahe
 from util.kalman_filter import KalmanFilter
-from util.matching import greedy_match, hungarian_match
+from util.matching import greedy_match, hungarian_match, calculate_hungarian_cost_mat
 from util.util import MOTDataFrame, slice_generator
 from util.video import video_to_frames, get_video_frame_count
 from util.config import ByteTrackLogConfig, ReidConfig, ByteTrackVideoConfig
@@ -237,6 +237,37 @@ def self_byte_track(input, high_conf_thres=0.5, low_conf_thres=0.3, max_lost_tim
                     curr_det = process_detections(detections, frame_image, reid_model)
                 case _:
                     raise Exception(f'{video_config.data_format} is not a valid ByteTrackVideoConfig data format')
+
+        # display the matching costs between detections and tracks
+        if log_config.log_matching_costs and frame_i % log_config.log_matching_cost_cycle == 0:
+            if not video_config.auto_play:
+                print('to display matching costs, please turn off auto play')
+            else:
+                with timer('bytetrack detections to tracklets cost'):
+                    cost = calculate_hungarian_cost_mat(detections, tracks, (len(detections), len(tracks)), iou_threshold, age_max_weight)
+                    for det_i, det in detections:
+                        for track_i, track in tracks:
+                            annotated_frame = np.array(frame_image.copy() * 0.5).astype(np.uint8) # dim the image for clearer annotations
+    
+                            annotated_frame = annotate_detections(annotated_frame, ([det], (255, 0, 0)), ([track], (0, 255, 0)))
+                            annotated_frame = cv2.putText(annotated_frame, f'cost: {cost[det_i, track_i]}', (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 2) # display cost between det and track
+    
+                            # display
+                            cv2.destroyAllWindows()
+                            cv2.imshow(annotated_frame)
+                            
+                        # dont wait
+                        if log_config.auto_play_matching_costs:
+                            key = cv2.waitKey(1) & 0xFF
+                            if key in [ord('w'), ord(' ')]:
+                                cv2.destroyAllWindows()
+                                return
+                        # do wait
+                        else:
+                            key = cv2.waitKey(0) & 0xFF  # do wait
+                            if key in [ord('w')]:
+                                cv2.destroyAllWindows()
+                                return
 
         # filter detections based on confidence + add reid
         with timer('bytetrack processing detections + reid', timeout_s=2):
